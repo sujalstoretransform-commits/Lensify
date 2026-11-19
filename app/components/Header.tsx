@@ -66,21 +66,24 @@ export default function Header({
                         type="button"
                         onClick={onToggleTryOn}
                         aria-pressed={isTryOnEnabled}
-                        className={`inline-flex items-center gap-3 rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200 ${isTryOnEnabled
-                                ? "bg-teal-700 text-white shadow-sm hover:bg-teal-800"
-                                : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        className={`inline-flex w-[150px] shrink-0 items-center justify-center gap-3 rounded-full border px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${isTryOnEnabled
+                                ? "border-teal-700 bg-teal-700 text-white shadow-sm hover:bg-teal-800"
+                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                             }`}
                     >
                         <span
-                            className={`relative h-5 w-9 rounded-full transition-colors ${isTryOnEnabled ? "bg-teal-500" : "bg-slate-300"
+                            className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${isTryOnEnabled ? "bg-teal-500" : "bg-slate-300"
                                 }`}
                         >
                             <span
-                                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isTryOnEnabled ? "translate-x-4" : "translate-x-0.5"
+                                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isTryOnEnabled ? "translate-x-4" : "translate-x-0"
                                     }`}
                             />
                         </span>
-                        Try-On {isTryOnEnabled ? "ON" : "OFF"}
+
+                        <span className="whitespace-nowrap">
+                            Try-On {isTryOnEnabled ? "ON" : "OFF"}
+                        </span>
                     </button>
                 )}
             </div>

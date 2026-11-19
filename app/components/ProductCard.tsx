@@ -2,21 +2,37 @@ import type { Product } from "../types/product";
 
 interface ProductCardProps {
   product: Product;
+  capturedPhoto: string | null;
+  isTryOnEnabled: boolean;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+export default function ProductCard({
+  product,
+  capturedPhoto,
+  isTryOnEnabled,
+}: ProductCardProps
+) {
   const formattedPrice = new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: product.price.currencyCode,
   }).format(Number(product.price.amount));
 
+  const imageToShow =
+    isTryOnEnabled && capturedPhoto
+      ? capturedPhoto
+      : product.image?.url
+
   return (
     <article className="overflow-hidden rounded-xl border border-gray-200 bg-white transition-shadow duration-200 hover:shadow-md">
       <div className="aspect-square w-full overflow-hidden bg-gray-100">
-        {product.image ? (
+        {imageToShow ? (
           <img
-            src={product.image.url}
-            alt={product.image.altText || product.title}
+            src={imageToShow}
+            alt={
+              isTryOnEnabled && capturedPhoto
+                ? "Your captured photo"
+                : product.image?.altText || product.title
+            }
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
           />
