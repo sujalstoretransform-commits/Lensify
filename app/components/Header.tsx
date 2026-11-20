@@ -1,6 +1,7 @@
 
 interface HeaderProps {
     hasPhoto: boolean;
+    isTryOnAvailable: boolean;
     isTryOnEnabled: boolean;
     onTryOnClick: () => void;
     onToggleTryOn: () => void;
@@ -8,6 +9,7 @@ interface HeaderProps {
 
 export default function Header({
     hasPhoto,
+    isTryOnAvailable,
     isTryOnEnabled,
     onTryOnClick,
     onToggleTryOn,
@@ -59,14 +61,15 @@ export default function Header({
                             />
                             <circle cx="12" cy="13" r="3.5" />
                         </svg>
-                        3D Try-On
+                        Try-On Glasses
                     </button>
                 ) : (
                     <button
                         type="button"
                         onClick={onToggleTryOn}
+                        disabled={!isTryOnAvailable}
                         aria-pressed={isTryOnEnabled}
-                        className={`inline-flex w-[150px] shrink-0 items-center justify-center gap-3 rounded-full border px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${isTryOnEnabled
+                        className={`inline-flex w-[170px] shrink-0 items-center justify-center gap-3 rounded-full border px-5 py-2.5 text-sm font-semibold transition-colors duration-200 disabled:cursor-wait disabled:opacity-60 ${isTryOnEnabled
                                 ? "border-teal-700 bg-teal-700 text-white shadow-sm hover:bg-teal-800"
                                 : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                             }`}
@@ -82,7 +85,9 @@ export default function Header({
                         </span>
 
                         <span className="whitespace-nowrap">
-                            Try-On {isTryOnEnabled ? "ON" : "OFF"}
+                            {!isTryOnAvailable
+                                ? "Preparing..."
+                                : `Try-On ${isTryOnEnabled ? "ON" : "OFF"}`}
                         </span>
                     </button>
                 )}

@@ -6,10 +6,15 @@ interface ProductNode {
     id: string;
     title: string;
     description: string;
-    featuredImage: {
-        url: string;
-        altText: string | null;
-    } | null;
+    media: {
+        nodes: Array<{
+            alt: string | null;
+            image: {
+                url: string;
+                altText: string | null;
+            } | null;
+        }>;
+    };
     priceRangeV2: {
         minVariantPrice: {
             amount: string;
@@ -42,6 +47,10 @@ export interface FormattedProduct {
         url: string;
         altText: string | null;
     } | null;
+    images: Array<{
+        url: string;
+        altText: string | null;
+    }>;
     price: {
         amount: string;
         currencyCode: string;
@@ -57,9 +66,16 @@ const PRODUCTS_QUERY = `#graphql
           id
           title
           description
-          featuredImage {
-            url
-            altText
+          media(first: 4, query: "media_type:IMAGE", sortKey: POSITION) {
+            nodes {
+              alt
+              ... on MediaImage {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
           }
           priceRangeV2 {
             minVariantPrice {
@@ -102,21 +118,28 @@ export async function fetchProducts(admin: Admin): Promise<FormattedProduct[]> {
         }
 
         products.push(
-            ...connection.edges.map(({ node }: { node: ProductNode }): FormattedProduct => ({
-                id: node.id,
-                title: node.title,
-                description: node.description,
-                image: node.featuredImage
-                    ? {
-                        url: node.featuredImage.url,
-                        altText: node.featuredImage.altText,
-                    }
-                    : null,
-                price: {
-                    amount: node.priceRangeV2.minVariantPrice.amount,
-                    currencyCode: node.priceRangeV2.minVariantPrice.currencyCode,
-                },
-            })),
+            ...connection.edges.map(({ node }: { node: ProductNode }): FormattedProduct => {
+                const images = node.media.nodes.flatMap(({ alt, image }) =>
+                    image
+                        ? [{
+                            url: image.url,
+                            altText: image.altText ?? alt,
+                        }]
+                        : []
+                );
+
+                return {
+                    id: node.id,
+                    title: node.title,
+                    description: node.description,
+                    image: images[0] ?? null,
+                    images,
+                    price: {
+                        amount: node.priceRangeV2.minVariantPrice.amount,
+                        currencyCode: node.priceRangeV2.minVariantPrice.currencyCode,
+                    },
+                };
+            }),
         );
         hasNextPage = connection.pageInfo.hasNextPage;
         cursor = connection.pageInfo.endCursor;
