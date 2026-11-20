@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { detectFaces, getEyePositions } from "app/services/face-detection.client";
+import { detectFaces, getEyePositions, isStraightFace, STRAIGHT_FACE_ERROR } from "app/services/face-detection.client";
 
 interface TryOnCameraProps {
     onClose: () => void;
@@ -16,6 +16,7 @@ export default function TryOnCamera({
 
     const [photo, setPhoto] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [cameraAttempt, setCameraAttempt] = useState(0);
     const [error, setError] = useState("")
 
     const [eyePoints, setEyePoints] = useState<{
@@ -29,6 +30,7 @@ export default function TryOnCamera({
 
     useEffect(() => {
         let cancelled = false;
+        const video = videoRef.current;
 
         const startCamera = async () => {
             try {
@@ -52,20 +54,13 @@ export default function TryOnCamera({
 
                 streamRef.current = stream
 
-                const video = videoRef.current;
-
                 if (!video) {
                     throw new Error("Camera preview could not be initialized.");
                 }
 
                 video.srcObject = stream;
 
-                await new Promise<void>((resolve, reject) => {
-                    video.onloadedmetadata = () => {
-                        video.play().then(resolve).catch(reject);
-                    }
-                    video.onerror = () => reject(new Error("Unable to display camera preview."))
-                })
+                await video.play();
 
                 if (!cancelled) {
                     setLoading(false);
@@ -73,11 +68,15 @@ export default function TryOnCamera({
             } catch (err) {
                 if (cancelled) return;
 
+                streamRef.current?.getTracks().forEach((track) => track.stop());
+                streamRef.current = null;
+                if (video) video.srcObject = null;
+
                 const cameraError = err as DOMException;
 
                 if (cameraError.name === "NotAllowedError") {
                     setError(
-                        "Camera permission denied. Allow camera access in your browser settings and reload Lensify.",
+                        "Camera permission denied. Allow camera access in your browser settings, then retry.",
                     );
                 } else if (cameraError.name === "NotFoundError") {
                     setError("No camera was found on this device.");
@@ -100,8 +99,15 @@ export default function TryOnCamera({
             cancelled = true;
             streamRef.current?.getTracks().forEach((track) => track.stop())
             streamRef.current = null;
+            if (video) video.srcObject = null;
         }
-    }, [])
+    }, [cameraAttempt])
+
+    const retryCamera = () => {
+        setError("");
+        setLoading(true);
+        setCameraAttempt((attempt) => attempt + 1);
+    };
 
 
     const capturePhoto = () => {
@@ -172,7 +178,13 @@ export default function TryOnCamera({
                 landmarks,
                 image.naturalWidth,
                 image.naturalHeight,
+                result.facialTransformationMatrixes?.[0]?.data,
             )
+
+            if (!isStraightFace(position.yaw)) {
+                setError(STRAIGHT_FACE_ERROR);
+                return;
+            }
 
             setEyePoints({
                 leftEye: position.leftEye,
@@ -205,7 +217,7 @@ export default function TryOnCamera({
                             Try on your glasses
                         </h2>
                         <p className="mt-1 text-xs text-gray-500">
-                            Position your face in the camera frame.
+                            Look straight at the camera with your face inside the frame.
                         </p>
                     </div>
 
@@ -226,78 +238,74 @@ export default function TryOnCamera({
 
                     {error && (
                         <div className="max-w-md px-6 py-10 text-center">
-                            <p className="text-sm leading-6 text-red-300">{error}</p>
+                            <p role="alert" className="text-sm leading-6 text-red-300">{error}</p>
                         </div>
                     )}
 
-                    {!error && (
-                        <>
-                            <video
-                                ref={videoRef}
-                                autoPlay
-                                muted
-                                playsInline
-                                className={`max-h-[65vh] w-full rounded-lg object-contain ${photo ? "hidden" : ""
-                                    }`}
-                                style={{ transform: "scaleX(-1)" }}
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        className={`max-h-[65vh] w-full rounded-lg object-contain ${photo || error ? "hidden" : ""
+                            }`}
+                        style={{ transform: "scaleX(-1)" }}
+                    />
+
+                    {photo && !error && (
+                        <div className="relative inline-block max-w-full">
+                            <img
+                                src={photo}
+                                alt="Your camera capture"
+                                className="block max-h-[65vh] w-auto max-w-full rounded-lg object-contain"
+                                onLoad={(event) => {
+                                    setImageWidth(event.currentTarget.naturalWidth)
+                                    setImageHeight(event.currentTarget.naturalHeight)
+                                }}
                             />
 
-                            {photo && (
-                                <div className="relative inline-block max-w-full">
-                                    <img
-                                        src={photo}
-                                        alt="Your captured photo"
-                                        className="block max-h-[65vh] w-auto max-w-full rounded-lg object-contain"
-                                        onLoad={(event) => {
-                                            setImageWidth(event.currentTarget.naturalWidth)
-                                            setImageHeight(event.currentTarget.naturalHeight)
+                            {faceLandmarks.length > 0 && (
+                                <svg
+                                    aria-hidden="true"
+                                    className="pointer-events-none absolute inset-0 h-full w-full"
+                                    viewBox={`0 0 ${imageWidth} ${imageHeight}`}
+                                    preserveAspectRatio="none"
+                                >
+                                    {faceLandmarks.map((point, index) => (
+                                        <circle
+                                            key={index}
+                                            cx={point.x}
+                                            cy={point.y}
+                                            r={Math.max(2, imageWidth * 0.0018)}
+                                            fill="#5eead4"
+                                            fillOpacity="0.65"
+                                        />
+                                    ))}
+                                </svg>
+                            )}
+
+                            {eyePoints && imageWidth > 0 && imageHeight > 0 && (
+                                <>
+                                    <div
+                                        className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
+                                        style={{
+                                            left: `${(eyePoints.leftEye.x / imageWidth) * 100}%`,
+                                            top: `${(eyePoints.leftEye.y / imageHeight) * 100}%`,
+                                            transform: "translate(-50%, -50%)",
                                         }}
                                     />
 
-                                    {faceLandmarks.length > 0 && (
-                                        <svg
-                                            aria-hidden="true"
-                                            className="pointer-events-none absolute inset-0 h-full w-full"
-                                            viewBox={`0 0 ${imageWidth} ${imageHeight}`}
-                                            preserveAspectRatio="none"
-                                        >
-                                            {faceLandmarks.map((point, index) => (
-                                                <circle
-                                                    key={index}
-                                                    cx={point.x}
-                                                    cy={point.y}
-                                                    r={Math.max(2, imageWidth * 0.0018)}
-                                                    fill="#5eead4"
-                                                    fillOpacity="0.65"
-                                                />
-                                            ))}
-                                        </svg>
-                                    )}
-
-                                    {eyePoints && imageWidth > 0 && imageHeight > 0 && (
-                                        <>
-                                            <div
-                                                className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
-                                                style={{
-                                                    left: `${(eyePoints.leftEye.x / imageWidth) * 100}%`,
-                                                    top: `${(eyePoints.leftEye.y / imageHeight) * 100}%`,
-                                                    transform: "translate(-50%, -50%)",
-                                                }}
-                                            />
-
-                                            <div
-                                                className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
-                                                style={{
-                                                    left: `${(eyePoints.rightEye.x / imageWidth) * 100}%`,
-                                                    top: `${(eyePoints.rightEye.y / imageHeight) * 100}%`,
-                                                    transform: "translate(-50%, -50%)",
-                                                }}
-                                            />
-                                        </>
-                                    )}
-                                </div>
+                                    <div
+                                        className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
+                                        style={{
+                                            left: `${(eyePoints.rightEye.x / imageWidth) * 100}%`,
+                                            top: `${(eyePoints.rightEye.y / imageHeight) * 100}%`,
+                                            transform: "translate(-50%, -50%)",
+                                        }}
+                                    />
+                                </>
                             )}
-                        </>
+                        </div>
                     )}
                 </div>
 
@@ -306,6 +314,7 @@ export default function TryOnCamera({
                         <>
                             <button
                                 type="button"
+                                disabled={loading}
                                 onClick={() => {
                                     setPhoto(null)
                                     setEyePoints(null)
@@ -336,11 +345,11 @@ export default function TryOnCamera({
                     ) : (
                         <button
                             type="button"
-                            onClick={capturePhoto}
-                            disabled={loading || Boolean(error)}
+                            onClick={error ? retryCamera : capturePhoto}
+                            disabled={loading}
                             className="rounded-full bg-teal-700 px-7 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            Capture Photo
+                            {error ? "Retry Camera" : "Capture Photo"}
                         </button>
                     )}
                 </div>

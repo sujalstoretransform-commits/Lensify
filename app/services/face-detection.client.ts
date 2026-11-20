@@ -2,6 +2,10 @@ import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision"
 
 let faceLandmarker: FaceLandmarker | null = null;
 
+export const STRAIGHT_FACE_ERROR = "Please look straight at the camera and retake your photo.";
+
+export const isStraightFace = (yaw: number) => Math.abs(yaw) < 0.3;
+
 export const getFaceLandmarker = async () => {
     if (faceLandmarker) return faceLandmarker;
 

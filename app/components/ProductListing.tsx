@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Product } from "../types/product";
 import Header from "./Header";
 import ProductCard from "./ProductCard";
-import { detectFaces, getEyePositions } from "../services/face-detection.client";
+import { detectFaces, getEyePositions, isStraightFace, STRAIGHT_FACE_ERROR } from "../services/face-detection.client";
 import type { FaceGeometry } from "../types/face-geometry";
 
 interface ProductListingProps {
@@ -86,6 +86,11 @@ export default function ProductListing({
                     image.naturalHeight,
                     result.facialTransformationMatrixes?.[0]?.data
                 );
+
+                if (!isStraightFace(positions.yaw)) {
+                    setFaceError(STRAIGHT_FACE_ERROR);
+                    return;
+                }
 
                 setFaceGeometry({
                     center: positions.center,

@@ -24,21 +24,11 @@ export default function ProductCard({
   }).format(Number(product.price.amount));
 
   const showTryOn = isTryOnEnabled && Boolean(capturedPhoto);
-  const productViews = product.images?.length
-    ? product.images
-    : product.image
-      ? [product.image]
-      : [];
   const alternateImage = product.images?.find(
     (image) => image.url !== product.image?.url
   );
   const faceYaw = faceGeometry?.yaw ?? 0;
-  const requestedViewIndex = Math.abs(faceYaw) < 0.3 ? 0 : faceYaw > 0 ? 2 : 1;
-  const viewIndex = productViews[requestedViewIndex] ? requestedViewIndex : 0;
-  const tryOnSourceImage = productViews[viewIndex] ?? product.image;
-  const sourceViewYaw = viewIndex === 1 ? -Math.PI / 4 : viewIndex === 2 ? Math.PI / 4 : 0;
-  const remainingYaw = faceYaw - sourceViewYaw;
-  const softenedStick = viewIndex === 0 ? "both" : viewIndex === 2 ? "right" : "left";
+  const tryOnSourceImage = product.images?.[0] ?? product.image;
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +37,7 @@ export default function ProductCard({
     setTryOnImage(null);
     if (!showTryOn || !tryOnSourceImage?.url) return;
 
-    extractGlasses(tryOnSourceImage.url, softenedStick)
+    extractGlasses(tryOnSourceImage.url)
       .then((blob) => {
         const url = URL.createObjectURL(blob);
         extractedImageUrl = url;
@@ -65,14 +55,14 @@ export default function ProductCard({
       cancelled = true;
       if (extractedImageUrl) URL.revokeObjectURL(extractedImageUrl);
     };
-  }, [showTryOn, tryOnSourceImage?.url, softenedStick]);
+  }, [showTryOn, tryOnSourceImage?.url]);
 
   const overlayWidth = faceGeometry
-    ? (faceGeometry.eyeDistance * 2.35 / Math.max(0.65, Math.cos(remainingYaw)) / faceGeometry.imageWidth) * 100
+    ? (faceGeometry.eyeDistance * 2.35 / Math.max(0.65, Math.cos(faceYaw)) / faceGeometry.imageWidth) * 100
     : 0;
 
   const overlayLeft = faceGeometry
-    ? (faceGeometry.center.x / faceGeometry.imageWidth) * 100.7
+    ? (faceGeometry.center.x / faceGeometry.imageWidth) * 100
     : 0;
 
   const overlayTop = faceGeometry
@@ -110,7 +100,7 @@ export default function ProductCard({
                   top: `${overlayTop}%`,
                   width: `${overlayWidth}%`,
                   height: "auto",
-                  transform: `translate(-50%, -50%) perspective(700px) rotateX(${faceGeometry.pitch}rad) rotateY(${remainingYaw}rad) rotate(${faceGeometry.rotation}rad)`,
+                  transform: `translate(-50%, -50%) perspective(700px) rotateX(${faceGeometry.pitch}rad) rotateY(${faceYaw}rad) rotate(${faceGeometry.rotation}rad)`,
                   transformOrigin: "center",
                 }}
               />

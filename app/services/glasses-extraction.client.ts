@@ -1,10 +1,7 @@
-type SoftenedStick = "both" | "left" | "right";
-
 const extractedImages = new Map<string, Promise<Blob>>();
 
-export const extractGlasses = (imageUrl: string, softenedStick: SoftenedStick): Promise<Blob> => {
-    const cacheKey = `${imageUrl}:${softenedStick}`;
-    const cachedImage = extractedImages.get(cacheKey);
+export const extractGlasses = (imageUrl: string): Promise<Blob> => {
+    const cachedImage = extractedImages.get(imageUrl);
     if (cachedImage) return cachedImage;
 
     const extraction = (async () => {
@@ -86,25 +83,32 @@ export const extractGlasses = (imageUrl: string, softenedStick: SoftenedStick): 
         );
 
         const lensPixels = cropContext.getImageData(0, 0, crop.width, crop.height);
-        const lensCenters = [
-            { side: "left", x: 0.25 },
-            { side: "right", x: 0.75 },
-        ];
+        const lensCenters = [0.25, 0.75];
         const radiusX = crop.width * 0.12;
         const radiusY = crop.height * 0.2;
-
         for (let index = 0; index < lensPixels.data.length; index += 4) {
             const pixel = index / 4;
             const x = pixel % crop.width;
             const y = Math.floor(pixel / crop.width);
-            const insideLens = lensCenters.some(({ side, x: centerX }) => {
-                if (softenedStick !== "both" && softenedStick !== side) return false;
+
+            const insideLens = lensCenters.some((centerX) => {
                 const dx = (x - crop.width * centerX) / radiusX;
                 const dy = (y - crop.height * 0.5) / radiusY;
                 return dx * dx + dy * dy < 1;
             });
 
-            if (insideLens) lensPixels.data[index + 3] *= 0.02;
+            // Folded temple tips can show through the upper outer lens corners.
+            // Keep the fade inset from the top and outer edges of the rim.
+            const outerX = Math.min(x, crop.width - 1 - x) / crop.width;
+            const tipX = (outerX - 0.13) / 0.065;
+            const tipY = (y / crop.height - 0.28) / 0.12;
+            const tipDistance = tipX * tipX + tipY * tipY;
+
+            if (insideLens) {
+                lensPixels.data[index + 3] *= 0.02;
+            } else if (tipDistance < 1) {
+                lensPixels.data[index + 3] *= Math.max(0.02, (tipDistance - 0.65) / 0.35);
+            }
         }
 
         cropContext.putImageData(lensPixels, 0, 0);
@@ -117,7 +121,7 @@ export const extractGlasses = (imageUrl: string, softenedStick: SoftenedStick): 
         });
     })();
 
-    extractedImages.set(cacheKey, extraction);
-    void extraction.catch(() => extractedImages.delete(cacheKey));
+    extractedImages.set(imageUrl, extraction);
+    void extraction.catch(() => extractedImages.delete(imageUrl));
     return extraction;
 };
