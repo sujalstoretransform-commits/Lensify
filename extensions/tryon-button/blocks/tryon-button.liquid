@@ -1,18 +1,52 @@
-<a
-  href="{{ block.settings.app_url }}/tryon?handle={{ product.handle }}"
-  target="_blank"
-  rel="noopener"
-  style="display:inline-block;padding:12px 20px;background:#000;color:#fff;border-radius:6px;"
+{% liquid
+  assign dialog_id = 'lensify-dialog-' | append: block.id
+  assign try_on_collection = block.settings.collection | default: collections.all
+%}
+
+{% capture catalog %}
+  [
+    {% for frame in try_on_collection.products limit: 50 %}
+      {
+        "id": {{ frame.id | append: '' | json }},
+        "imageUrl": {% if frame.images.first %}{{ frame.images.first | image_url: width: 1280 | json }}{% else %}null{% endif %}
+      }{% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  ]
+{% endcapture %}
+
+<div
+  data-lensify-dialog="{{ dialog_id | escape }}"
+  {{ block.shopify_attributes }}
 >
-  3D Try-On
-</a>
+  <input type="hidden" data-lensify-catalog value="{{ catalog | strip_newlines | escape }}">
+  <button
+    type="button"
+    class="lensify-launch"
+    data-lensify-launch
+    data-lensify-toggle
+    aria-haspopup="dialog"
+    aria-controls="{{ dialog_id | escape }}"
+  >
+    Try On Glasses
+  </button>
+  <button type="button" class="lensify-retake" data-lensify-launch data-lensify-retake hidden>
+    Re-Upload
+  </button>
+  <p class="lensify-status" data-lensify-status role="status" hidden></p>
+</div>
+
+<dialog id="{{ dialog_id | escape }}" class="lensify-dialog" aria-label="Lensify try-on">
+  <iframe title="Lensify camera and try-on"></iframe>
+</dialog>
 
 {% schema %}
 {
-  "name": "3D Try-On",
+  "name": "Try On Glasses",
   "target": "section",
+  "stylesheet": "tryon-dialog.css",
+  "javascript": "tryon-dialog.js",
   "settings": [
-    { "type": "text", "id": "app_url", "label": "App URL", "default": "https://tera-app-url.com" }
+    { "type": "collection", "id": "collection", "label": "Try-on collection" }
   ]
 }
 {% endschema %}

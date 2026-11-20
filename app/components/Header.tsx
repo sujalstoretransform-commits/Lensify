@@ -64,32 +64,54 @@ export default function Header({
                         Try-On Glasses
                     </button>
                 ) : (
-                    <button
-                        type="button"
-                        onClick={onToggleTryOn}
-                        disabled={!isTryOnAvailable}
-                        aria-pressed={isTryOnEnabled}
-                        className={`inline-flex w-[170px] shrink-0 items-center justify-center gap-3 rounded-full border px-5 py-2.5 text-sm font-semibold transition-colors duration-200 disabled:cursor-wait disabled:opacity-60 ${isTryOnEnabled
+                    <div className="flex gap-3">
+                        <button
+                            type="button"
+                            onClick={onToggleTryOn}
+                            disabled={!isTryOnAvailable}
+                            aria-pressed={isTryOnEnabled}
+                            className={`inline-flex w-[170px] shrink-0 items-center justify-center gap-3 rounded-full border px-5 py-2.5 text-sm font-semibold transition-colors duration-200 disabled:cursor-wait disabled:opacity-60 ${isTryOnEnabled
                                 ? "border-teal-700 bg-teal-700 text-white shadow-sm hover:bg-teal-800"
                                 : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                            }`}
-                    >
-                        <span
-                            className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${isTryOnEnabled ? "bg-teal-500" : "bg-slate-300"
                                 }`}
                         >
                             <span
-                                className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isTryOnEnabled ? "translate-x-4" : "translate-x-0"
+                                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${isTryOnEnabled ? "bg-teal-500" : "bg-slate-300"
                                     }`}
-                            />
-                        </span>
+                            >
+                                <span
+                                    className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isTryOnEnabled ? "translate-x-4" : "translate-x-0"
+                                        }`}
+                                />
+                            </span>
 
-                        <span className="whitespace-nowrap">
-                            {!isTryOnAvailable
-                                ? "Preparing..."
-                                : `Try-On ${isTryOnEnabled ? "ON" : "OFF"}`}
-                        </span>
-                    </button>
+                            <span className="whitespace-nowrap">
+                                {!isTryOnAvailable
+                                    ? "Preparing..."
+                                    : `Try-On ${isTryOnEnabled ? "ON" : "OFF"}`}
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={onTryOnClick}
+                            className="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-teal-50 px-4 py-2.5 text-sm font-semibold text-teal-800 transition-colors hover:bg-teal-100 active:bg-teal-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                        >
+                            <svg
+                                aria-hidden="true"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                            >
+                                <path d="M20 7v5h-5M4 17v-5h5M6 8a7 7 0 0 1 11.5-2L20 9M4 15l2.5 3A7 7 0 0 0 18 16" />
+                            </svg>
+                            Re-Upload
+                        </button>
+                    </div>
                 )}
             </div>
         </header>

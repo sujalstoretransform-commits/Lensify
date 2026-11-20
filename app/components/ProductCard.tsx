@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Product } from "../types/product";
 import type { FaceGeometry } from "../types/face-geometry";
 import { extractGlasses } from "../services/glasses-extraction.client";
+import { getGlassesFit } from "../services/glasses-fit";
 
 interface ProductCardProps {
   product: Product;
@@ -27,7 +28,6 @@ export default function ProductCard({
   const alternateImage = product.images?.find(
     (image) => image.url !== product.image?.url
   );
-  const faceYaw = faceGeometry?.yaw ?? 0;
   const tryOnSourceImage = product.images?.[0] ?? product.image;
 
   useEffect(() => {
@@ -57,18 +57,6 @@ export default function ProductCard({
     };
   }, [showTryOn, tryOnSourceImage?.url]);
 
-  const overlayWidth = faceGeometry
-    ? (faceGeometry.eyeDistance * 2.35 / Math.max(0.65, Math.cos(faceYaw)) / faceGeometry.imageWidth) * 100
-    : 0;
-
-  const overlayLeft = faceGeometry
-    ? (faceGeometry.center.x / faceGeometry.imageWidth) * 100
-    : 0;
-
-  const overlayTop = faceGeometry
-    ? (faceGeometry.center.y / faceGeometry.imageHeight) * 103.5
-    : 0;
-
    return (
     <article className="overflow-hidden rounded-xl border border-gray-200 bg-white transition-shadow hover:shadow-md">
       <div
@@ -96,11 +84,8 @@ export default function ProductCard({
                 draggable={false}
                 className="pointer-events-none absolute max-w-none"
                 style={{
-                  left: `${overlayLeft}%`,
-                  top: `${overlayTop}%`,
-                  width: `${overlayWidth}%`,
+                  ...getGlassesFit(faceGeometry),
                   height: "auto",
-                  transform: `translate(-50%, -50%) perspective(700px) rotateX(${faceGeometry.pitch}rad) rotateY(${faceYaw}rad) rotate(${faceGeometry.rotation}rad)`,
                   transformOrigin: "center",
                 }}
               />

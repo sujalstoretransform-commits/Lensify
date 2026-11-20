@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { detectFaces, getEyePositions, isStraightFace, isWearingGlasses, STRAIGHT_FACE_ERROR } from "app/services/face-detection.client";
+import type { FaceGeometry } from "../types/face-geometry";
 
 interface TryOnCameraProps {
     onClose: () => void;
-    onCapture: (photo: string) => void;
+    onCapture: (photo: string, geometry: FaceGeometry) => void;
+    showBackdrop?: boolean;
 }
 
 export default function TryOnCamera({
     onClose,
     onCapture,
+    showBackdrop = true,
 }: TryOnCameraProps
 ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -22,6 +25,7 @@ export default function TryOnCamera({
     const [eyePoints, setEyePoints] = useState<{
         leftEye: { x: number; y: number };
         rightEye: { x: number; y: number };
+        geometry: FaceGeometry;
     } | null>(null);
 
     const [imageWidth, setImageWidth] = useState(0);
@@ -193,7 +197,16 @@ export default function TryOnCamera({
 
             setEyePoints({
                 leftEye: position.leftEye,
-                rightEye: position.rightEye
+                rightEye: position.rightEye,
+                geometry: {
+                    center: position.center,
+                    eyeDistance: position.eyeDistance,
+                    rotation: position.rotation,
+                    yaw: position.yaw,
+                    pitch: position.pitch,
+                    imageWidth: image.naturalWidth,
+                    imageHeight: image.naturalHeight,
+                },
             })
             setFaceLandmarks(
                 landmarks.map((landmark) => ({
@@ -214,7 +227,7 @@ export default function TryOnCamera({
     }
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4${showBackdrop ? " bg-black/70" : ""}`}>
             <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
                 <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
                     <div>
@@ -335,7 +348,7 @@ export default function TryOnCamera({
                                 type="button"
                                 onClick={() => {
                                     if (eyePoints) {
-                                        onCapture(photo!)
+                                        onCapture(photo, eyePoints.geometry)
                                         closeCamera();
                                     } else {
                                         handleUsePhoto();
