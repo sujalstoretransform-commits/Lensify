@@ -1,6 +1,8 @@
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision"
+import type { GlassesDetector } from "@framefind/core";
 
 let faceLandmarker: FaceLandmarker | null = null;
+let glassesDetector: Promise<GlassesDetector> | undefined;
 
 export const STRAIGHT_FACE_ERROR = "Please look straight at the camera and retake your photo.";
 
@@ -37,6 +39,37 @@ type NormalizedLandmark = {
     z: number;
 };
 
+async function loadGlassesDetector() {
+    const { GlassesDetector } = await import("@framefind/core");
+    const detector = new GlassesDetector({
+        modelUrl: "/models/glasses.onnx",
+        // Vite bundles the WASM for production. Its dev optimizer rewrites module URLs.
+        wasmPaths: import.meta.env.DEV
+            ? "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/"
+            : "",
+        autoLandmarks: false,
+        smoothingWindow: 1,
+    });
+    await detector.load();
+    return detector;
+}
+
+export async function isWearingGlasses(image: HTMLImageElement, landmarks: NormalizedLandmark[]) {
+    glassesDetector ??= loadGlassesDetector().catch((error) => {
+        glassesDetector = undefined;
+        throw error;
+    });
+    const detector = await glassesDetector;
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Could not read the captured photo");
+    context.drawImage(image, 0, 0);
+    const result = await detector.detectFromCanvas(canvas, landmarks);
+    return result.glasses;
+}
+
 export const getEyePositions = (
     landmarks: NormalizedLandmark[],
     imageWidth: number,
@@ -70,8 +103,6 @@ export const getEyePositions = (
     };
 
     const noseBridge = toPixel(landmarks[168]);
-    const noseTip = toPixel(landmarks[1]);
-
     const center = {
         x: noseBridge.x,
         y: (leftEye.y + rightEye.y) / 2,
@@ -81,27 +112,6 @@ export const getEyePositions = (
         rightEye.x - leftEye.x,
         rightEye.y - leftEye.y
     );
-
-    const faceLeft = toPixel(landmarks[234]);
-    const faceRight = toPixel(landmarks[454]);
-    const leftTemple = toPixel(landmarks[127]);
-    const rightTemple = toPixel(landmarks[356]);
-    const forehead = toPixel(landmarks[10]);
-    const chin = toPixel(landmarks[152]);
-
-    const cheekWidth = Math.hypot(
-        faceRight.x - faceLeft.x,
-        faceRight.y - faceLeft.y
-    );
-    const templeWidth = Math.hypot(
-        rightTemple.x - leftTemple.x,
-        rightTemple.y - leftTemple.y
-    );
-    const faceHeight = Math.hypot(
-        chin.x - forehead.x,
-        chin.y - forehead.y
-    );
-
 
     const rotation = Math.atan2(
         rightEye.y - leftEye.y,
@@ -126,11 +136,6 @@ export const getEyePositions = (
         leftEye,
         rightEye,
         center,
-        noseBridge,
-        noseTip,
-        faceWidth: cheekWidth,
-        templeWidth,
-        faceHeight,
         eyeDistance,
         rotation,
         yaw,

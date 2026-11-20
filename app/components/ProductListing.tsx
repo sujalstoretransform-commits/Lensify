@@ -95,15 +95,13 @@ export default function ProductListing({
                 setFaceGeometry({
                     center: positions.center,
                     eyeDistance: positions.eyeDistance,
-                    faceWidth: positions.faceWidth,
-                    templeWidth: positions.templeWidth,
-                    faceHeight: positions.faceHeight,
                     rotation: positions.rotation,
                     yaw: positions.yaw,
                     pitch: positions.pitch,
                     imageWidth: image.naturalWidth,
                     imageHeight: image.naturalHeight,
                 });
+                setIsTryOnEnabled(true);
             } catch (error) {
                 console.error("Face geometry calculation failed:", error);
                 if (!cancelled) {

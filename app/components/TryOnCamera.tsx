@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { detectFaces, getEyePositions, isStraightFace, STRAIGHT_FACE_ERROR } from "app/services/face-detection.client";
+import { detectFaces, getEyePositions, isStraightFace, isWearingGlasses, STRAIGHT_FACE_ERROR } from "app/services/face-detection.client";
 
 interface TryOnCameraProps {
     onClose: () => void;
@@ -186,6 +186,11 @@ export default function TryOnCamera({
                 return;
             }
 
+            if (await isWearingGlasses(image, landmarks)) {
+                setError("Please remove your glasses and retake your photo.");
+                return;
+            }
+
             setEyePoints({
                 leftEye: position.leftEye,
                 rightEye: position.rightEye
@@ -217,7 +222,7 @@ export default function TryOnCamera({
                             Try on your glasses
                         </h2>
                         <p className="mt-1 text-xs text-gray-500">
-                            Look straight at the camera with your face inside the frame.
+                            Remove your glasses and look straight at the camera.
                         </p>
                     </div>
 
@@ -233,7 +238,7 @@ export default function TryOnCamera({
 
                 <div className="relative flex min-h-64 items-center justify-center bg-gray-950 p-3">
                     {loading && !error && (
-                        <p className="text-sm text-white">Starting camera...</p>
+                        <p className="text-sm text-white">{photo ? "Checking photo..." : "Starting camera..."}</p>
                     )}
 
                     {error && (
