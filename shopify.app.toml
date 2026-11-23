@@ -2,7 +2,7 @@
 
 client_id = "2c5b36ef2df46e2810048e04da6a45e2"
 name = "Lensify"
-application_url = "https://example.com"
+application_url = "https://lensify-zeta.vercel.app"
 embedded = true
 
 [build]
@@ -29,4 +29,4 @@ prefix = "apps"
 subpath = "lensify"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://lensify-zeta.vercel.app/auth/callback" ]
