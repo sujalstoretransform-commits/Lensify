@@ -1,6 +1,35 @@
 (() => {
   let previews = [];
   let enabled = false;
+  const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+  function previewStorage(mode, operation) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open('lensify-tryon', 1)
+
+      open.onupgradeneeded = () => {
+        open.result.createObjectStore('previews')
+      }
+
+      open.onerror = () => reject(open.error);
+
+      open.onsuccess = () => {
+        const db = open.result
+        const transaction = db.transaction('previews', mode);
+        const request = operation(transaction.objectStore('previews'));
+
+        transaction.oncomplete = () => {
+          db.close();
+          resolve(request.result);
+        };
+
+        transaction.onabort = () => {
+          db.close();
+          reject(transaction.error ?? new Error('Preview storage was aborted'));
+        };
+      }
+    })
+  }
 
   function showStatus(block, text) {
     const status = block.querySelector('[data-lensify-status]');
@@ -56,6 +85,16 @@
     return true;
   }
 
+  function getGalleries() {
+    return Array.from(
+      document.querySelectorAll('product-card .card-gallery'),
+      (gallery) => ({
+        id: gallery.dataset.productId || gallery.closest('product-card')?.dataset.productId,
+        gallery,
+      })
+    )
+  }
+
   async function openCamera(block, button) {
     const dialog = document.getElementById(block.dataset.lensifyDialog);
     if (!(dialog instanceof HTMLDialogElement) || dialog.open) return;
@@ -64,10 +103,8 @@
     const catalog = JSON.parse(block.querySelector('[data-lensify-catalog]')?.value || '[]');
     if (!iframe) return;
 
-    const galleries = Array.from(document.querySelectorAll('product-card .card-gallery'), (gallery) => ({
-      id: gallery.dataset.productId || gallery.closest('product-card')?.dataset.productId,
-      gallery,
-    }));
+    const galleries = getGalleries();
+
     const visibleProductIds = new Set(galleries.map(({ id }) => id));
     const frames = catalog.filter(({ id, imageUrl }) => imageUrl && visibleProductIds.has(id));
     if (!frames.length) {
@@ -102,14 +139,30 @@
       const data = message.data;
       if (data?.type === 'LENSIFY_STOREFRONT_READY') {
         iframe.contentWindow.postMessage({ type: 'LENSIFY_STOREFRONT_CATALOG', catalog: frames }, url.origin);
+        return;
       } else if (data?.type === 'LENSIFY_STOREFRONT_CANCEL') {
         dialog.close();
+        return;
       } else if (data?.type === 'LENSIFY_STOREFRONT_PREVIEWS') {
+        const { photo, aspectRatio, fit, overlays } = data;
+
         if (!showPreviews(data, galleries)) {
-          showStatus(block, 'The try-on previews aren’t available on this page.');
+          showStatus(block, 'The try-on previews are unavailable on this page.');
         }
-        dialog.close();
+
+        previewStorage('readwrite', (store) =>
+          store.put({
+            photo,
+            aspectRatio,
+            fit,
+            overlays,
+            expiresAt: Date.now() + PHOTO_TTL_MS,
+          }, 'latest')
+        ).catch((error) => console.warn('Could not save try-on preview', error));
+      } else {
+        return;
       }
+      dialog.close();
     };
     dialog.addEventListener('close', () => {
       window.removeEventListener('message', handleCameraMessage);
@@ -134,4 +187,26 @@
       openCamera(block, button);
     }
   });
+
+  async function restorePreview() {
+    try {
+      const saved = await previewStorage('readonly', (store) => store.get('latest'));
+      if (!saved) return;
+
+      if (Date.now() >= saved.expiresAt) {
+        await previewStorage('readwrite', (store) => store.delete('latest'));
+        return;
+      }
+
+      if (!previews.length) showPreviews(saved, getGalleries());
+    } catch (error) {
+      console.warn('Could not restore try-on preview', error);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restorePreview, { once: true });
+  } else {
+    restorePreview();
+  }
 })();
