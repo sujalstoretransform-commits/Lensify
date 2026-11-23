@@ -48,8 +48,10 @@
     }
   }
 
-  function showPreviews(data, galleries) {
+  function showPreviews(data, galleries, block) {
     const overlays = new Map(data.overlays.map(({ id, overlay }) => [id, overlay]));
+    const catalog = JSON.parse(block?.querySelector('[data-lensify-catalog]')?.value || '[]');
+    const frames = new Map(catalog.map((frame) => [frame.id, frame]));
     const next = [];
     for (const { id, gallery } of galleries) {
       const overlay = overlays.get(id);
@@ -72,13 +74,50 @@
       photoContainer.append(photo, glasses);
       element.append(photoContainer);
       gallery.append(element);
-      next.push({ element, url });
+      const card = gallery.closest('product-card');
+      const frame = frames.get(id);
+      let requestedImage;
+      let variantUrl;
+      function clearVariant() {
+        if (variantUrl) URL.revokeObjectURL(variantUrl);
+        variantUrl = undefined;
+      }
+      async function setVariant(variantId) {
+        const imageUrl = frame?.variantImages?.[variantId];
+        if (imageUrl === requestedImage && variantUrl) return;
+        requestedImage = imageUrl;
+        if (!imageUrl || imageUrl === frame.imageUrl) {
+          glasses.src = url;
+          glasses.hidden = imageUrl === null;
+          clearVariant();
+          return;
+        }
+        glasses.hidden = true;
+        try {
+          const { extractGlasses } = await import(block.dataset.lensifyExtractionUrl);
+          const overlay = await extractGlasses(imageUrl);
+          if (!element.isConnected || requestedImage !== imageUrl) return;
+          clearVariant();
+          variantUrl = URL.createObjectURL(overlay);
+          glasses.src = variantUrl;
+          glasses.hidden = false;
+        } catch (error) {
+          if (!element.isConnected || requestedImage !== imageUrl) return;
+          glasses.hidden = true;
+          clearVariant();
+          console.warn('Could not load try-on variant', error);
+        }
+      }
+      const selected = card?.querySelector('input[data-variant-id]:checked');
+      if (selected) void setVariant(selected.dataset.variantId);
+      next.push({ element, url, card, setVariant, clearVariant });
     }
     if (!next.length) return false;
 
-    for (const { element, url } of previews) {
+    for (const { element, url, clearVariant } of previews) {
       element.remove();
       URL.revokeObjectURL(url);
+      clearVariant();
     }
     previews = next;
     setTryOnEnabled(true);
@@ -146,7 +185,7 @@
       } else if (data?.type === 'LENSIFY_STOREFRONT_PREVIEWS') {
         const { photo, aspectRatio, fit, overlays } = data;
 
-        if (!showPreviews(data, galleries)) {
+        if (!showPreviews(data, galleries, block)) {
           showStatus(block, 'The try-on previews are unavailable on this page.');
         }
 
@@ -188,6 +227,15 @@
     }
   });
 
+  document.addEventListener('change', (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !input.checked || !input.dataset.variantId) return;
+    const card = input.closest('product-card');
+    if (!card) return;
+    const preview = previews.find((entry) => entry.card === card);
+    if (preview) void preview.setVariant(input.dataset.variantId);
+  }, true);
+
   async function restorePreview() {
     try {
       const saved = await previewStorage('readonly', (store) => store.get('latest'));
@@ -198,7 +246,9 @@
         return;
       }
 
-      if (!previews.length) showPreviews(saved, getGalleries());
+      if (!previews.length) {
+        showPreviews(saved, getGalleries(), document.querySelector('[data-lensify-dialog]'));
+      }
     } catch (error) {
       console.warn('Could not restore try-on preview', error);
     }

@@ -8,7 +8,14 @@
     {% for frame in try_on_collection.products limit: 50 %}
       {
         "id": {{ frame.id | append: '' | json }},
-        "imageUrl": {% if frame.images.first %}{{ frame.images.first | image_url: width: 1280 | json }}{% else %}null{% endif %}
+        "imageUrl": {% if frame.images.first %}{{ frame.images.first | image_url: width: 1280 | json }}{% else %}null{% endif %},
+        "variantImages": {
+          {% for variant in frame.variants %}
+            {{ variant.id | append: '' | json }}:
+            {% if variant.featured_image %}{{ variant.featured_image | image_url: width: 1280 | json }}{% else %}null{% endif %}
+            {% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        }
       }{% unless forloop.last %},{% endunless %}
     {% endfor %}
   ]
@@ -16,6 +23,7 @@
 
 <div
   data-lensify-dialog="{{ dialog_id | escape }}"
+  data-lensify-extraction-url="{{ 'glasses-extraction.js' | asset_url | escape }}"
   {{ block.shopify_attributes }}
 >
   <input type="hidden" data-lensify-catalog value="{{ catalog | strip_newlines | escape }}">

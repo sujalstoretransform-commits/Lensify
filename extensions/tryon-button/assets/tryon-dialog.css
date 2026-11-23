@@ -123,6 +123,10 @@
   max-width: none;
 }
 
+.lensify-preview-glasses[hidden] {
+  display: none;
+}
+
 .lensify-dialog {
   position: fixed;
   inset: 0;
