@@ -5,6 +5,9 @@
   let reconcileFrame;
   let enabled = false;
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const EXTRACTION_VERSION = 4;
+  const MAX_SAVED_OVERLAYS = 100;
+  let overlaySaveTimer;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -64,6 +67,34 @@
     status.hidden = !text;
   }
 
+  function saveGeneratedOverlay(data, key, overlay) {
+    const entry = { overlay, extractionVersion: EXTRACTION_VERSION };
+    data.generatedOverlays ??= {};
+    delete data.generatedOverlays[key];
+    data.generatedOverlays[key] = entry;
+    if (data !== previewData) return;
+    clearTimeout(overlaySaveTimer);
+    overlaySaveTimer = setTimeout(() => persistGeneratedOverlays(data), 150);
+  }
+
+  function persistGeneratedOverlays(data) {
+    void previewStorage('readwrite', (store) => {
+      const request = store.get('latest');
+      request.addEventListener('success', () => {
+        const saved = request.result;
+        if (!saved || saved.expiresAt !== data.expiresAt || saved.expiresAt <= Date.now()) return;
+        const entries = new Map(Object.entries(saved.generatedOverlays ?? {}));
+        for (const [key, entry] of Object.entries(data.generatedOverlays)) {
+          entries.delete(key);
+          entries.set(key, entry);
+        }
+        const generated = Object.fromEntries(Array.from(entries).slice(-MAX_SAVED_OVERLAYS));
+        store.put({ ...saved, generatedOverlays: generated }, 'latest');
+      });
+      return request;
+    }).catch((error) => console.warn('Could not save generated overlay', error));
+  }
+
   function setTryOnEnabled(value) {
     enabled = value;
     for (const preview of previews.values()) preview.updateVisibility();
@@ -103,7 +134,7 @@
       if (!gallery.isConnected || !frames.has(id)) continue;
       const frame = frames.get(id);
       const card = gallery.closest('product-card');
-      const url = frontVerified && extractionVersion === 4 && overlay instanceof Blob && overlay.type === 'image/png'
+      const url = frontVerified && extractionVersion === EXTRACTION_VERSION && overlay instanceof Blob && overlay.type === 'image/png'
         ? URL.createObjectURL(overlay)
         : undefined;
       const element = document.createElement('div');
@@ -150,10 +181,16 @@
         try {
           let nextUrl = url;
           if (!url || !images.some(({ imageUrl }) => imageUrl === overlayImageUrl)) {
-            const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
-            const { overlay } = await extractFrontGlasses(images);
+            const cacheKey = `${id}:${request}`;
+            const saved = data.generatedOverlays?.[cacheKey];
+            let nextOverlay = saved?.extractionVersion === EXTRACTION_VERSION ? saved.overlay : undefined;
+            if (!(nextOverlay instanceof Blob) || nextOverlay.type !== 'image/png') {
+              const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
+              ({ overlay: nextOverlay } = await extractFrontGlasses(images));
+              saveGeneratedOverlay(data, cacheKey, nextOverlay);
+            }
             if (!element.isConnected || requestedImage !== request) return;
-            nextVariantUrl = URL.createObjectURL(overlay);
+            nextVariantUrl = URL.createObjectURL(nextOverlay);
             nextUrl = nextVariantUrl;
           }
           const nextGlasses = glasses.cloneNode(false);
@@ -302,19 +339,14 @@
         return;
       } else if (data?.type === 'LENSIFY_STOREFRONT_PREVIEWS') {
         const { photo, aspectRatio, fit, overlays } = data;
+        const saved = { photo, aspectRatio, fit, overlays, expiresAt: Date.now() + PHOTO_TTL_MS };
 
-        if (!showPreviews(data, block)) {
+        if (!showPreviews(saved, block)) {
           showStatus(block, 'The try-on previews are unavailable on this page.');
         }
 
         previewStorage('readwrite', (store) =>
-          store.put({
-            photo,
-            aspectRatio,
-            fit,
-            overlays,
-            expiresAt: Date.now() + PHOTO_TTL_MS,
-          }, 'latest')
+          store.put(saved, 'latest')
         ).catch((error) => console.warn('Could not save try-on preview', error));
       } else {
         return;
