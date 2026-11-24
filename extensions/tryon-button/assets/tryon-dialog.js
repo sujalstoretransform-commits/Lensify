@@ -1,5 +1,17 @@
 (() => {
   const previews = new Map();
+  const nearbyGalleries = new WeakSet();
+  const galleryObserver = new IntersectionObserver((entries) => {
+    for (const { target, isIntersecting } of entries) {
+      if (isIntersecting) {
+        nearbyGalleries.add(target);
+        previews.get(target)?.syncGalleryImage();
+      } else {
+        nearbyGalleries.delete(target);
+        previews.get(target)?.releaseImage();
+      }
+    }
+  }, { rootMargin: '200px 0px' });
   let previewData;
   let previewBlock;
   let reconcileFrame;
@@ -72,6 +84,8 @@
     data.generatedOverlays ??= {};
     delete data.generatedOverlays[key];
     data.generatedOverlays[key] = entry;
+    const keys = Object.keys(data.generatedOverlays);
+    if (keys.length > MAX_SAVED_OVERLAYS) delete data.generatedOverlays[keys[0]];
     if (data !== previewData) return;
     clearTimeout(overlaySaveTimer);
     overlaySaveTimer = setTimeout(() => persistGeneratedOverlays(data), 150);
@@ -108,6 +122,8 @@
   }
 
   function removePreview(gallery, { element, url, clearVariant }) {
+    galleryObserver.unobserve(gallery);
+    nearbyGalleries.delete(gallery);
     element.remove();
     URL.revokeObjectURL(url);
     clearVariant();
@@ -159,6 +175,7 @@
       element.append(photoContainer);
       gallery.append(element);
       let requestedImage;
+      let imageRequest = 0;
       let variantUrl;
       let ready = false;
       function updateVisibility() {
@@ -168,10 +185,20 @@
         if (variantUrl) URL.revokeObjectURL(variantUrl);
         variantUrl = undefined;
       }
+      function releaseImage() {
+        imageRequest++;
+        requestedImage = undefined;
+        ready = false;
+        updateVisibility();
+        glasses.removeAttribute('src');
+        clearVariant();
+      }
       async function setImage(images) {
         const request = JSON.stringify(images);
         if (request === requestedImage) return;
         requestedImage = request;
+        const requestId = ++imageRequest;
+        const isCurrent = () => element.isConnected && imageRequest === requestId;
         if (!images.length) {
           ready = false;
           updateVisibility();
@@ -187,17 +214,22 @@
             let nextOverlay = saved?.extractionVersion === EXTRACTION_VERSION ? saved.overlay : undefined;
             if (!(nextOverlay instanceof Blob) || nextOverlay.type !== 'image/png') {
               const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
-              ({ overlay: nextOverlay } = await extractFrontGlasses(images));
+              const result = await extractFrontGlasses(images, () => isCurrent() && enabled);
+              if (!result) {
+                if (isCurrent()) requestedImage = undefined;
+                return;
+              }
+              ({ overlay: nextOverlay } = result);
               saveGeneratedOverlay(data, cacheKey, nextOverlay);
             }
-            if (!element.isConnected || requestedImage !== request) return;
+            if (!isCurrent()) return;
             nextVariantUrl = URL.createObjectURL(nextOverlay);
             nextUrl = nextVariantUrl;
           }
           const nextGlasses = glasses.cloneNode(false);
           nextGlasses.src = nextUrl;
           await nextGlasses.decode();
-          if (!element.isConnected || requestedImage !== request) return;
+          if (!isCurrent()) return;
           glasses.replaceWith(nextGlasses);
           glasses = nextGlasses;
           clearVariant();
@@ -206,7 +238,7 @@
           ready = true;
           updateVisibility();
         } catch (error) {
-          if (!element.isConnected || requestedImage !== request) return;
+          if (!isCurrent()) return;
           ready = false;
           updateVisibility();
           clearVariant();
@@ -217,17 +249,18 @@
         }
       }
       function syncGalleryImage(input = card?.querySelector('input[data-variant-id]:checked')) {
+        if (!enabled || !nearbyGalleries.has(gallery)) return;
         void setImage(getFrameImages(gallery, frame, input));
       }
       function warmVariant(input) {
         const images = getFrameImages(gallery, frame, input);
         if (!images.length || images.some(({ imageUrl }) => imageUrl === overlayImageUrl && url)) return;
         void import(block.dataset.lensifyExtractionUrl)
-          .then(({ extractFrontGlasses }) => extractFrontGlasses(images))
+          .then(({ extractFrontGlasses }) => extractFrontGlasses(images, () => enabled && nearbyGalleries.has(gallery)))
           .catch(() => {});
       }
-      syncGalleryImage();
-      previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, updateVisibility });
+      previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, releaseImage, updateVisibility });
+      galleryObserver.observe(gallery);
     }
     setTryOnEnabled(enabled);
   }
@@ -397,10 +430,10 @@
     if (!block) return;
 
     if (previewData && button.hasAttribute('data-lensify-toggle')) {
-      if (!enabled) {
+      setTryOnEnabled(!enabled);
+      if (enabled) {
         for (const preview of previews.values()) preview.syncGalleryImage();
       }
-      setTryOnEnabled(!enabled);
     } else {
       openCamera(block, button);
     }

@@ -281,7 +281,7 @@ export const extractGlasses = (imageUrl, requireFront = false) => {
     if (cachedImage) return cachedImage;
 
     const extraction = (async () => {
-        const response = await fetch(imageUrl);
+        const response = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
         if (!response.ok) throw new Error("Could not load product image");
 
         const bitmap = await createImageBitmap(await response.blob());
@@ -361,26 +361,37 @@ export const extractGlasses = (imageUrl, requireFront = false) => {
     })();
 
     extractedImages.set(cacheKey, extraction);
+    if (extractedImages.size > 100) {
+        extractedImages.delete(extractedImages.keys().next().value);
+    }
     void extraction.catch(() => extractedImages.delete(cacheKey));
     return extraction;
 };
 
 let extractionQueue = Promise.resolve();
 
-/** @param {{ imageUrl: string; labeledFront: boolean }[]} candidates */
-export function extractFrontGlasses(candidates) {
+/**
+ * @param {{ imageUrl: string; labeledFront: boolean }[]} candidates
+ * @param {() => boolean} shouldContinue
+ */
+export function extractFrontGlasses(candidates, shouldContinue = () => true) {
     const job = extractionQueue.then(async () => {
+        if (!shouldContinue()) return;
         // Give the storefront a chance to paint and handle input between frames.
         await new Promise((resolve) => setTimeout(resolve, 0));
-        return extractFrame(candidates);
+        return extractFrame(candidates, shouldContinue);
     });
     extractionQueue = job.then(() => {}, () => {});
     return job;
 }
 
-/** @param {{ imageUrl: string; labeledFront: boolean }[]} candidates */
-async function extractFrame(candidates) {
+/**
+ * @param {{ imageUrl: string; labeledFront: boolean }[]} candidates
+ * @param {() => boolean} shouldContinue
+ */
+async function extractFrame(candidates, shouldContinue) {
     for (const { imageUrl, labeledFront } of candidates) {
+        if (!shouldContinue()) return;
         try {
             return { imageUrl, overlay: await extractGlasses(imageUrl, !labeledFront) };
         } catch {

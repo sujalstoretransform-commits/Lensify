@@ -53,7 +53,7 @@ export default function StorefrontTryOn() {
             if (event.data?.type !== "LENSIFY_STOREFRONT_CATALOG") return;
             window.removeEventListener("message", receiveCatalog);
             const catalog: unknown = event.data.catalog;
-            setFrames(Array.isArray(catalog) && catalog.length <= 250 && catalog.every(isStorefrontFrame) ? catalog : null);
+            setFrames(Array.isArray(catalog) && catalog.length <= 2500 && catalog.every(isStorefrontFrame) ? catalog : null);
         };
         const closeOnEscape = (event: KeyboardEvent) => {
             if (event.key === "Escape") closeModal();
