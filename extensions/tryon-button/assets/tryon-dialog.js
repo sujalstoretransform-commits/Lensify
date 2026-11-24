@@ -1,15 +1,22 @@
 (() => {
   const previews = new Map();
   const nearbyGalleries = new WeakSet();
+  function distanceFromViewport({ top, bottom }) {
+    return Math.max(0, top - window.innerHeight, -bottom);
+  }
+
   const galleryObserver = new IntersectionObserver((entries) => {
-    for (const { target, isIntersecting } of entries) {
+    const entering = [];
+    for (const { target, isIntersecting, boundingClientRect } of entries) {
       if (isIntersecting) {
         nearbyGalleries.add(target);
-        previews.get(target)?.syncGalleryImage();
+        entering.push({ target, distance: distanceFromViewport(boundingClientRect) });
       } else {
         nearbyGalleries.delete(target);
       }
     }
+    entering.sort((a, b) => a.distance - b.distance);
+    for (const { target } of entering) previews.get(target)?.syncGalleryImage();
   }, { rootMargin: '1000px 0px' });
   let previewData;
   let previewBlock;
@@ -121,7 +128,6 @@
       productObserver.disconnect();
       if (reconcileFrame !== undefined) cancelAnimationFrame(reconcileFrame);
       reconcileFrame = undefined;
-      for (const [gallery, preview] of previews) removePreview(gallery, preview);
     }
     for (const preview of previews.values()) preview.updateVisibility();
     for (const block of document.querySelectorAll('[data-lensify-dialog]')) {
@@ -173,7 +179,11 @@
       }
     }
     for (const { id, gallery } of galleries) {
-      if (previews.has(gallery)) continue;
+      const existing = previews.get(gallery);
+      if (existing) {
+        existing.syncGalleryImage();
+        continue;
+      }
       const { overlay, imageUrl: overlayImageUrl, frontVerified, extractionVersion } = overlays.get(id) ?? {};
       if (!gallery.isConnected) continue;
       const frame = frames.get(id) ?? {};
@@ -358,15 +368,15 @@
     let firstFrame;
     for (const { id, gallery } of getGalleries()) {
       if (restrictCollection && !catalogById.has(id)) continue;
-      const bounds = gallery.getBoundingClientRect();
-      const nearby = bounds.bottom >= 0 && bounds.top <= window.innerHeight + 500;
+      const distance = distanceFromViewport(gallery.getBoundingClientRect());
+      const nearby = distance <= 500;
       if (!nearby && firstFrame) continue;
       const selected = gallery.closest('product-card')?.querySelector('input[data-variant-id]:checked');
       const images = getFrameImages(gallery, catalogById.get(id) ?? {}, selected);
       if (!images.length) continue;
       const frame = { id, images };
       firstFrame ??= frame;
-      if (nearby) nearbyFrames.push(frame);
+      if (nearby) nearbyFrames.push({ images, distance });
     }
     if (!firstFrame) {
       showStatus(block, 'No matching frames are available on this page.');
@@ -376,6 +386,13 @@
     const buttonLabel = button.textContent;
     button.textContent = 'Opening camera…';
     button.disabled = true;
+    nearbyFrames.sort((a, b) => a.distance - b.distance);
+    // Frame preparation is independent of the photo and the camera connection.
+    void import(block.dataset.lensifyExtractionUrl).then(({ extractFrontGlasses }) => {
+      for (const { images } of nearbyFrames) {
+        void extractFrontGlasses(images, () => button.disabled || dialog.open).catch(() => {});
+      }
+    }).catch(() => {});
     let url;
     try {
       url = new URL(await getCameraUrl());
@@ -424,12 +441,6 @@
     iframe.src = url.href;
     dialog.showModal();
 
-    // Prepare the first rows while the customer captures their photo.
-    void import(block.dataset.lensifyExtractionUrl).then(({ extractFrontGlasses }) => {
-      for (const { images } of nearbyFrames) {
-        void extractFrontGlasses(images, () => dialog.open).catch(() => {});
-      }
-    }).catch(() => {});
   }
 
   function prefetchCameraUrl(event) {
