@@ -368,21 +368,53 @@ export const extractGlasses = (imageUrl, requireFront = false) => {
     return extraction;
 };
 
-let extractionQueue = Promise.resolve();
+const frameJobs = new Map();
+const pendingFrames = [];
+const MAX_ACTIVE_FRAMES = 4;
+let activeFrames = 0;
+
+function startPendingFrames() {
+    while (activeFrames < MAX_ACTIVE_FRAMES && pendingFrames.length) {
+        const run = pendingFrames.shift();
+        activeFrames++;
+        // Let the storefront paint before doing pixel processing.
+        setTimeout(() => {
+            void run().finally(() => {
+                activeFrames--;
+                startPendingFrames();
+            });
+        }, 0);
+    }
+}
 
 /**
  * @param {{ imageUrl: string; labeledFront: boolean }[]} candidates
  * @param {() => boolean} shouldContinue
  */
 export function extractFrontGlasses(candidates, shouldContinue = () => true) {
-    const job = extractionQueue.then(async () => {
-        if (!shouldContinue()) return;
-        // Give the storefront a chance to paint and handle input between frames.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        return extractFrame(candidates, shouldContinue);
+    const key = JSON.stringify(candidates);
+    const existing = frameJobs.get(key);
+    if (existing) {
+        existing.consumers.add(shouldContinue);
+        return existing.result;
+    }
+
+    const consumers = new Set([shouldContinue]);
+    const stillNeeded = () => [...consumers].some((consumer) => consumer());
+    const result = new Promise((resolve, reject) => {
+        pendingFrames.push(async () => {
+            try {
+                resolve(await extractFrame(candidates, stillNeeded));
+            } catch (error) {
+                reject(error);
+            } finally {
+                frameJobs.delete(key);
+            }
+        });
     });
-    extractionQueue = job.then(() => {}, () => {});
-    return job;
+    frameJobs.set(key, { consumers, result });
+    startPendingFrames();
+    return result;
 }
 
 /**

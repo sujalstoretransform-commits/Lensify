@@ -8,14 +8,14 @@
         previews.get(target)?.syncGalleryImage();
       } else {
         nearbyGalleries.delete(target);
-        previews.get(target)?.releaseImage();
       }
     }
-  }, { rootMargin: '200px 0px' });
+  }, { rootMargin: '1000px 0px' });
   let previewData;
   let previewBlock;
   let reconcileFrame;
   let enabled = false;
+  const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const EXTRACTION_VERSION = 4;
   const MAX_SAVED_OVERLAYS = 100;
@@ -134,6 +134,22 @@
     }
   }
 
+  function rememberTryOnState(value) {
+    try {
+      sessionStorage.setItem(TRY_ON_STATE_KEY, String(value));
+    } catch {
+      // Try-on still works when session storage is unavailable.
+    }
+  }
+
+  function wasTryOnEnabled() {
+    try {
+      return sessionStorage.getItem(TRY_ON_STATE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
   function removePreview(gallery, { element, url, clearVariant }) {
     galleryObserver.unobserve(gallery);
     nearbyGalleries.delete(gallery);
@@ -198,14 +214,6 @@
         if (variantUrl) URL.revokeObjectURL(variantUrl);
         variantUrl = undefined;
       }
-      function releaseImage() {
-        imageRequest++;
-        requestedImage = undefined;
-        ready = false;
-        updateVisibility();
-        glasses.removeAttribute('src');
-        clearVariant();
-      }
       async function setImage(images) {
         const request = JSON.stringify(images);
         if (request === requestedImage) return;
@@ -227,7 +235,7 @@
             let nextOverlay = saved?.extractionVersion === EXTRACTION_VERSION ? saved.overlay : undefined;
             if (!(nextOverlay instanceof Blob) || nextOverlay.type !== 'image/png') {
               const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
-              const result = await extractFrontGlasses(images, () => isCurrent() && enabled);
+              const result = await extractFrontGlasses(images, () => isCurrent() && enabled && nearbyGalleries.has(gallery));
               if (!result) {
                 if (isCurrent()) requestedImage = undefined;
                 return;
@@ -272,7 +280,7 @@
           .then(({ extractFrontGlasses }) => extractFrontGlasses(images, () => enabled && nearbyGalleries.has(gallery)))
           .catch(() => {});
       }
-      previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, releaseImage, updateVisibility });
+      previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, updateVisibility });
       galleryObserver.observe(gallery);
     }
     setTryOnEnabled(enabled);
@@ -283,6 +291,7 @@
     previewData = data;
     previewBlock = block;
     enabled = true;
+    rememberTryOnState(true);
     reconcilePreviews();
     return previews.size > 0;
   }
@@ -312,7 +321,7 @@
       'slideshow-slide img, .product-media-container img, .card-gallery__image--hover, .product-card__image--secondary'
     );
     for (const image of media) {
-      const imageUrl = getProductImageUrl(image.currentSrc || image.getAttribute('src'));
+      const imageUrl = getProductImageUrl(image.getAttribute('src')) || getProductImageUrl(image.currentSrc);
       const alt = image.alt || '';
       if (!imageUrl || /\b(?:angled?|three[\s-]quarter)\b|45°/i.test(alt)) continue;
       const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
@@ -410,6 +419,17 @@
     iframe.allow = `camera ${url.origin}`;
     iframe.src = url.href;
     dialog.showModal();
+
+    // Prepare the first rows while the customer captures their photo.
+    const nearbyFrames = frames.filter(({ id }) => {
+      const bounds = visibleGalleries.get(id).getBoundingClientRect();
+      return bounds.bottom >= 0 && bounds.top <= window.innerHeight + 500;
+    });
+    void import(block.dataset.lensifyExtractionUrl).then(({ extractFrontGlasses }) => {
+      for (const { images } of nearbyFrames) {
+        void extractFrontGlasses(images, () => dialog.open).catch(() => {});
+      }
+    }).catch(() => {});
   }
 
   function prefetchCameraUrl(event) {
@@ -444,6 +464,7 @@
 
     if (previewData && button.hasAttribute('data-lensify-toggle')) {
       setTryOnEnabled(!enabled);
+      rememberTryOnState(enabled);
       if (enabled) reconcilePreviews();
     } else {
       openCamera(block, button);
@@ -461,6 +482,13 @@
     }
   }, true);
 
+  document.addEventListener('load', (event) => {
+    const image = event.target;
+    if (!enabled || !(image instanceof HTMLImageElement) || image.closest('.lensify-preview')) return;
+    const gallery = image.closest('.card-gallery');
+    previews.get(gallery)?.syncGalleryImage();
+  }, true);
+
   async function restorePreview() {
     try {
       const saved = await previewStorage('readonly', (store) => store.get('latest'));
@@ -474,7 +502,8 @@
       if (!previewData) {
         previewData = saved;
         previewBlock = document.querySelector('[data-lensify-dialog]');
-        setTryOnEnabled(false);
+        setTryOnEnabled(wasTryOnEnabled());
+        if (enabled) reconcilePreviews();
       }
     } catch (error) {
       console.warn('Could not restore try-on preview', error);
