@@ -262,18 +262,17 @@
   function getGalleryImages(gallery, defaultImageUrl) {
     const images = new Map();
     const media = gallery.querySelectorAll(
-      'slideshow-slide:not([hidden]) img, .product-media-container img, .card-gallery__image--hover, .product-card__image--secondary'
+      'slideshow-slide img, .product-media-container img, .card-gallery__image--hover, .product-card__image--secondary'
     );
     for (const image of media) {
-      if (image.closest('slideshow-slide[hidden]')) continue;
-      const imageUrl = getProductImageUrl(image.getAttribute('src') || image.currentSrc);
+      const imageUrl = getProductImageUrl(image.currentSrc || image.getAttribute('src'));
       const alt = image.alt || '';
       if (!imageUrl || /\b(?:angled?|three[\s-]quarter)\b|45°/i.test(alt)) continue;
       const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
       images.set(imageUrl, labeledFront || images.get(imageUrl) || false);
     }
     const fallback = getProductImageUrl(defaultImageUrl);
-    if (!images.size && fallback) images.set(fallback, false);
+    if (fallback && !images.has(fallback)) images.set(fallback, false);
     return Array.from(images, ([imageUrl, labeledFront]) => ({ imageUrl, labeledFront }))
       .sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront))
       .slice(0, 5);
@@ -285,7 +284,7 @@
 
     // The gallery can still show the previous swatch while the theme updates it.
     const variantUrl = getProductImageUrl(frame.variantImages?.[variantId]);
-    if (!variantUrl) return [];
+    if (!variantUrl) return getGalleryImages(gallery, frame.imageUrl);
     const labeledImage = getGalleryImages(gallery).find(({ imageUrl }) => imageUrl === variantUrl);
     return [labeledImage ?? { imageUrl: variantUrl, labeledFront: false }];
   }
