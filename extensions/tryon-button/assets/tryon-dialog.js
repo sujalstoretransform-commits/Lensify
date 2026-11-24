@@ -18,8 +18,6 @@
   const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const EXTRACTION_VERSION = 4;
-  const MAX_SAVED_OVERLAYS = 100;
-  let overlaySaveTimer;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -45,20 +43,24 @@
     return cameraUrlRequest;
   }
 
-  function previewStorage(mode, operation) {
+  function previewStorage(mode, operation, storeName = 'previews') {
     return new Promise((resolve, reject) => {
-      const open = indexedDB.open('lensify-tryon', 1)
+      const open = indexedDB.open('lensify-tryon', 2)
 
       open.onupgradeneeded = () => {
-        open.result.createObjectStore('previews')
+        if (!open.result.objectStoreNames.contains('previews')) {
+          open.result.createObjectStore('previews');
+        }
+        const overlays = open.result.createObjectStore('overlays');
+        overlays.createIndex('expiresAt', 'expiresAt');
       }
 
       open.onerror = () => reject(open.error);
 
       open.onsuccess = () => {
         const db = open.result
-        const transaction = db.transaction('previews', mode);
-        const request = operation(transaction.objectStore('previews'));
+        const transaction = db.transaction(storeName, mode);
+        const request = operation(transaction.objectStore(storeName));
 
         transaction.oncomplete = () => {
           db.close();
@@ -79,34 +81,31 @@
     status.hidden = !text;
   }
 
-  function saveGeneratedOverlay(data, key, overlay) {
-    const entry = { overlay, extractionVersion: EXTRACTION_VERSION };
-    data.generatedOverlays ??= {};
-    delete data.generatedOverlays[key];
-    data.generatedOverlays[key] = entry;
-    const keys = Object.keys(data.generatedOverlays);
-    if (keys.length > MAX_SAVED_OVERLAYS) delete data.generatedOverlays[keys[0]];
-    if (data !== previewData) return;
-    clearTimeout(overlaySaveTimer);
-    overlaySaveTimer = setTimeout(() => persistGeneratedOverlays(data), 150);
+  function saveGeneratedOverlay(key, overlay) {
+    const entry = { overlay, expiresAt: Date.now() + PHOTO_TTL_MS };
+    void previewStorage('readwrite', (store) => store.put(entry, [EXTRACTION_VERSION, key]), 'overlays')
+      .catch((error) => console.warn('Could not save generated overlay', error));
   }
 
-  function persistGeneratedOverlays(data) {
+  async function readGeneratedOverlay(data, key) {
+    const legacy = data.generatedOverlays?.[key];
+    if (legacy?.extractionVersion === EXTRACTION_VERSION) return legacy.overlay;
+    const saved = await previewStorage('readonly', (store) => store.get([EXTRACTION_VERSION, key]), 'overlays')
+      .catch(() => undefined);
+    if (saved?.expiresAt > Date.now()) return saved.overlay;
+  }
+
+  function pruneExpiredOverlays() {
     void previewStorage('readwrite', (store) => {
-      const request = store.get('latest');
+      const request = store.index('expiresAt').openCursor(IDBKeyRange.upperBound(Date.now()));
       request.addEventListener('success', () => {
-        const saved = request.result;
-        if (!saved || saved.expiresAt !== data.expiresAt || saved.expiresAt <= Date.now()) return;
-        const entries = new Map(Object.entries(saved.generatedOverlays ?? {}));
-        for (const [key, entry] of Object.entries(data.generatedOverlays)) {
-          entries.delete(key);
-          entries.set(key, entry);
-        }
-        const generated = Object.fromEntries(Array.from(entries).slice(-MAX_SAVED_OVERLAYS));
-        store.put({ ...saved, generatedOverlays: generated }, 'latest');
+        const cursor = request.result;
+        if (!cursor) return;
+        cursor.delete();
+        cursor.continue();
       });
       return request;
-    }).catch((error) => console.warn('Could not save generated overlay', error));
+    }, 'overlays').catch((error) => console.warn('Could not clean up expired overlays', error));
   }
 
   function setTryOnEnabled(value) {
@@ -190,7 +189,6 @@
       const photoContainer = document.createElement('div');
       photoContainer.className = 'lensify-preview-photo';
       const photo = new Image();
-      photo.src = data.photo;
       photo.alt = 'Your virtual try-on';
       let glasses = new Image();
       glasses.alt = '';
@@ -231,8 +229,8 @@
           let nextUrl = url;
           if (!url || !images.some(({ imageUrl }) => imageUrl === overlayImageUrl)) {
             const cacheKey = `${id}:${request}`;
-            const saved = data.generatedOverlays?.[cacheKey];
-            let nextOverlay = saved?.extractionVersion === EXTRACTION_VERSION ? saved.overlay : undefined;
+            let nextOverlay = await readGeneratedOverlay(data, cacheKey);
+            if (!isCurrent()) return;
             if (!(nextOverlay instanceof Blob) || nextOverlay.type !== 'image/png') {
               const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
               const result = await extractFrontGlasses(images, () => isCurrent() && enabled && nearbyGalleries.has(gallery));
@@ -241,7 +239,7 @@
                 return;
               }
               ({ overlay: nextOverlay } = result);
-              saveGeneratedOverlay(data, cacheKey, nextOverlay);
+              saveGeneratedOverlay(cacheKey, nextOverlay);
             }
             if (!isCurrent()) return;
             nextVariantUrl = URL.createObjectURL(nextOverlay);
@@ -249,7 +247,8 @@
           }
           const nextGlasses = glasses.cloneNode(false);
           nextGlasses.src = nextUrl;
-          await nextGlasses.decode();
+          if (!photo.src) photo.src = data.photo;
+          await Promise.all([nextGlasses.decode(), photo.decode()]);
           if (!isCurrent()) return;
           glasses.replaceWith(nextGlasses);
           glasses = nextGlasses;
@@ -353,20 +352,23 @@
     const catalog = JSON.parse(block.querySelector('[data-lensify-catalog]')?.value || '[]');
     if (!iframe) return;
 
-    const galleries = getGalleries();
-
-    const visibleGalleries = new Map(galleries.map(({ id, gallery }) => [id, gallery]));
     const catalogById = new Map(catalog.map((frame) => [frame.id, frame]));
     const restrictCollection = block.hasAttribute('data-lensify-restrict-collection');
-    const frames = Array.from(visibleGalleries)
-      .filter(([id]) => !restrictCollection || catalogById.has(id))
-      .map(([id, gallery]) => {
-        const frame = catalogById.get(id) ?? {};
-        const selected = gallery.closest('product-card')?.querySelector('input[data-variant-id]:checked');
-        return { id, images: getFrameImages(gallery, frame, selected) };
-      })
-      .filter(({ images }) => images.length);
-    if (!frames.length) {
+    const nearbyFrames = [];
+    let firstFrame;
+    for (const { id, gallery } of getGalleries()) {
+      if (restrictCollection && !catalogById.has(id)) continue;
+      const bounds = gallery.getBoundingClientRect();
+      const nearby = bounds.bottom >= 0 && bounds.top <= window.innerHeight + 500;
+      if (!nearby && firstFrame) continue;
+      const selected = gallery.closest('product-card')?.querySelector('input[data-variant-id]:checked');
+      const images = getFrameImages(gallery, catalogById.get(id) ?? {}, selected);
+      if (!images.length) continue;
+      const frame = { id, images };
+      firstFrame ??= frame;
+      if (nearby) nearbyFrames.push(frame);
+    }
+    if (!firstFrame) {
       showStatus(block, 'No matching frames are available on this page.');
       return;
     }
@@ -389,7 +391,9 @@
       if (message.source !== iframe.contentWindow || message.origin !== url.origin) return;
       const data = message.data;
       if (data?.type === 'LENSIFY_STOREFRONT_READY') {
-        iframe.contentWindow.postMessage({ type: 'LENSIFY_STOREFRONT_CATALOG', catalog: frames }, url.origin);
+        // The camera only needs one eligible frame to start. The storefront
+        // prepares overlays as cards come into range.
+        iframe.contentWindow.postMessage({ type: 'LENSIFY_STOREFRONT_CATALOG', catalog: [firstFrame] }, url.origin);
         return;
       } else if (data?.type === 'LENSIFY_STOREFRONT_CANCEL') {
         dialog.close();
@@ -421,10 +425,6 @@
     dialog.showModal();
 
     // Prepare the first rows while the customer captures their photo.
-    const nearbyFrames = frames.filter(({ id }) => {
-      const bounds = visibleGalleries.get(id).getBoundingClientRect();
-      return bounds.bottom >= 0 && bounds.top <= window.innerHeight + 500;
-    });
     void import(block.dataset.lensifyExtractionUrl).then(({ extractFrontGlasses }) => {
       for (const { images } of nearbyFrames) {
         void extractFrontGlasses(images, () => dialog.open).catch(() => {});
@@ -536,7 +536,7 @@
 
   function initialize() {
     showControls(document);
-    void restorePreview();
+    void restorePreview().then(pruneExpiredOverlays);
   }
 
   if (document.readyState === 'loading') {

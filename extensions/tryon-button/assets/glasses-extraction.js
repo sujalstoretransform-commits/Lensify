@@ -275,17 +275,21 @@ function trimAboveTintedRims({ data, width, height }, minX, maxX) {
 }
 
 /** @param {string} imageUrl @param {boolean} [requireFront] @returns {Promise<Blob>} */
-export const extractGlasses = (imageUrl, requireFront = false) => {
-    const cacheKey = requireFront ? `front:${imageUrl}` : imageUrl;
+export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) => {
+    const cacheKey = JSON.stringify([imageUrl, requireFront, maxSize]);
     const cachedImage = extractedImages.get(cacheKey);
     if (cachedImage) return cachedImage;
 
     const extraction = (async () => {
-        const response = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
+        const sourceUrl = new URL(imageUrl);
+        if (sourceUrl.searchParams.get("width") === "1280" && maxSize < 1280) {
+            sourceUrl.searchParams.set("width", String(maxSize));
+        }
+        const response = await fetch(sourceUrl.href, { signal: AbortSignal.timeout(8000) });
         if (!response.ok) throw new Error("Could not load product image");
 
         const bitmap = await createImageBitmap(await response.blob());
-        const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+        const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
         const width = Math.round(bitmap.width * scale);
         const height = Math.round(bitmap.height * scale);
         const source = document.createElement("canvas");
@@ -369,8 +373,11 @@ export const extractGlasses = (imageUrl, requireFront = false) => {
 };
 
 const frameJobs = new Map();
+const preparedFrames = new Map();
 const pendingFrames = [];
 const MAX_ACTIVE_FRAMES = 4;
+const PREVIEW_IMAGE_SIZE = 640;
+const MAX_PREPARED_FRAMES = 100;
 let activeFrames = 0;
 
 function startPendingFrames() {
@@ -393,6 +400,8 @@ function startPendingFrames() {
  */
 export function extractFrontGlasses(candidates, shouldContinue = () => true) {
     const key = JSON.stringify(candidates);
+    const prepared = preparedFrames.get(key);
+    if (prepared) return Promise.resolve(prepared);
     const existing = frameJobs.get(key);
     if (existing) {
         existing.consumers.add(shouldContinue);
@@ -404,7 +413,14 @@ export function extractFrontGlasses(candidates, shouldContinue = () => true) {
     const result = new Promise((resolve, reject) => {
         pendingFrames.push(async () => {
             try {
-                resolve(await extractFrame(candidates, stillNeeded));
+                const frame = await extractFrame(candidates, stillNeeded);
+                if (frame) {
+                    preparedFrames.set(key, frame);
+                    if (preparedFrames.size > MAX_PREPARED_FRAMES) {
+                        preparedFrames.delete(preparedFrames.keys().next().value);
+                    }
+                }
+                resolve(frame);
             } catch (error) {
                 reject(error);
             } finally {
@@ -422,12 +438,14 @@ export function extractFrontGlasses(candidates, shouldContinue = () => true) {
  * @param {() => boolean} shouldContinue
  */
 async function extractFrame(candidates, shouldContinue) {
-    for (const { imageUrl, labeledFront } of candidates) {
-        if (!shouldContinue()) return;
-        try {
-            return { imageUrl, overlay: await extractGlasses(imageUrl, !labeledFront) };
-        } catch {
-            // A missing or angled image should not prevent trying another view.
+    for (const size of [PREVIEW_IMAGE_SIZE, 1280]) {
+        for (const { imageUrl, labeledFront } of candidates) {
+            if (!shouldContinue()) return;
+            try {
+                return { imageUrl, overlay: await extractGlasses(imageUrl, !labeledFront, size) };
+            } catch {
+                // Try another view, then use full resolution if the smaller images fail.
+            }
         }
     }
     throw new Error("No front-facing product image could be prepared");
