@@ -292,7 +292,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
         const width = Math.round(bitmap.width * scale);
         const height = Math.round(bitmap.height * scale);
-        const source = document.createElement("canvas");
+        const source = typeof document === "undefined" ? new OffscreenCanvas(width, height) : document.createElement("canvas");
         source.width = width;
         source.height = height;
 
@@ -338,7 +338,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         maxX = Math.min(width - 1, maxX + padding);
         maxY = Math.min(height - 1, maxY + padding);
 
-        const crop = document.createElement("canvas");
+        const crop = typeof document === "undefined" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
         crop.width = maxX - minX + 1;
         crop.height = maxY - minY + 1;
         const cropContext = crop.getContext("2d");
@@ -356,6 +356,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
             crop.height
         );
 
+        if (typeof crop.convertToBlob === "function") return crop.convertToBlob({ type: "image/png" });
         return new Promise((resolve, reject) => {
             crop.toBlob((blob) => {
                 if (blob) resolve(blob);
@@ -372,6 +373,67 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
     return extraction;
 };
 
+let workerPool;
+let workerIndex = 0;
+
+function createExtractionWorker() {
+    const script = `
+        import { extractGlasses } from ${JSON.stringify(import.meta.url)};
+        self.onmessage = async ({ data: { id, args } }) => {
+            try {
+                self.postMessage({ id, overlay: await extractGlasses(...args) });
+            } catch {
+                self.postMessage({ id });
+            }
+        };
+    `;
+    const url = URL.createObjectURL(new Blob([script], { type: "text/javascript" }));
+    try {
+        const worker = new Worker(url, { type: "module" });
+        const requests = new Map();
+        let nextId = 0;
+        let failed = false;
+        worker.onmessage = ({ data: { id, overlay } }) => {
+            requests.get(id)?.(overlay);
+            requests.delete(id);
+        };
+        worker.onerror = () => {
+            failed = true;
+            worker.terminate();
+            for (const resolve of requests.values()) resolve(null);
+            requests.clear();
+        };
+        return (...args) => new Promise((resolve) => {
+            if (failed) return resolve(null);
+            const id = nextId++;
+            requests.set(id, resolve);
+            worker.postMessage({ id, args });
+        });
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+async function extractPreviewImage(...args) {
+    if (workerPool === undefined) {
+        workerPool = [];
+        if (typeof Worker === "function" && typeof OffscreenCanvas === "function") {
+            try {
+                workerPool.push(createExtractionWorker());
+                workerPool.push(createExtractionWorker());
+            } catch {
+                // Some storefront policies block module workers.
+            }
+        }
+    }
+    if (workerPool.length) {
+        const overlay = await workerPool[workerIndex++ % workerPool.length](...args);
+        if (overlay) return overlay;
+        if (overlay === undefined) throw new Error("Could not extract a front-facing frame");
+    }
+    return extractGlasses(...args);
+}
+
 const frameJobs = new Map();
 const preparedFrames = new Map();
 const pendingFrames = [];
@@ -382,7 +444,16 @@ let activeFrames = 0;
 
 function startPendingFrames() {
     while (activeFrames < MAX_ACTIVE_FRAMES && pendingFrames.length) {
-        const run = pendingFrames.shift();
+        let next = 0;
+        let priority = pendingFrames[0].priority();
+        for (let index = 1; index < pendingFrames.length && priority > 0; index++) {
+            const candidate = pendingFrames[index].priority();
+            if (candidate < priority) {
+                next = index;
+                priority = candidate;
+            }
+        }
+        const [{ run }] = pendingFrames.splice(next, 1);
         activeFrames++;
         // Let the storefront paint before doing pixel processing.
         setTimeout(() => {
@@ -397,21 +468,23 @@ function startPendingFrames() {
 /**
  * @param {{ imageUrl: string; labeledFront: boolean }[]} candidates
  * @param {() => boolean} shouldContinue
+ * @param {() => number} priority
  */
-export function extractFrontGlasses(candidates, shouldContinue = () => true) {
+export function extractFrontGlasses(candidates, shouldContinue = () => true, priority = () => 1) {
     const key = JSON.stringify(candidates);
     const prepared = preparedFrames.get(key);
     if (prepared) return Promise.resolve(prepared);
     const existing = frameJobs.get(key);
     if (existing) {
-        existing.consumers.add(shouldContinue);
+        existing.consumers.set(shouldContinue, priority);
         return existing.result;
     }
 
-    const consumers = new Set([shouldContinue]);
-    const stillNeeded = () => [...consumers].some((consumer) => consumer());
+    const consumers = new Map([[shouldContinue, priority]]);
+    const stillNeeded = () => [...consumers.keys()].some((consumer) => consumer());
+    const jobPriority = () => Math.min(Infinity, ...Array.from(consumers, ([needed, score]) => needed() ? score() : Infinity));
     const result = new Promise((resolve, reject) => {
-        pendingFrames.push(async () => {
+        const run = async () => {
             try {
                 const frame = await extractFrame(candidates, stillNeeded);
                 if (frame) {
@@ -426,7 +499,8 @@ export function extractFrontGlasses(candidates, shouldContinue = () => true) {
             } finally {
                 frameJobs.delete(key);
             }
-        });
+        };
+        pendingFrames.push({ run, priority: jobPriority });
     });
     frameJobs.set(key, { consumers, result });
     startPendingFrames();
@@ -442,7 +516,7 @@ async function extractFrame(candidates, shouldContinue) {
         for (const { imageUrl, labeledFront } of candidates) {
             if (!shouldContinue()) return;
             try {
-                return { imageUrl, overlay: await extractGlasses(imageUrl, !labeledFront, size) };
+                return { imageUrl, overlay: await extractPreviewImage(imageUrl, !labeledFront, size) };
             } catch {
                 // Try another view, then use full resolution if the smaller images fail.
             }

@@ -111,13 +111,14 @@
   border-radius: inherit;
   background-color: var(--color-background, #fff);
   pointer-events: none;
+  visibility: hidden;
 }
 
-.lensify-preview[hidden] {
-  display: none;
+.lensify-preview[data-lensify-visible] {
+  visibility: visible;
 }
 
-.card-gallery:has(> .lensify-preview:not([hidden])) .product-badges {
+.card-gallery:has(> .lensify-preview[data-lensify-visible]) .product-badges {
   z-index: 2;
 }
 

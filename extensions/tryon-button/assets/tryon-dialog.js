@@ -194,7 +194,6 @@
         : undefined;
       const element = document.createElement('div');
       element.className = 'lensify-preview';
-      element.hidden = true;
       element.style.setProperty('--lensify-photo-ratio', data.aspectRatio);
       const photoContainer = document.createElement('div');
       photoContainer.className = 'lensify-preview-photo';
@@ -216,7 +215,7 @@
       let variantUrl;
       let ready = false;
       function updateVisibility() {
-        element.hidden = !enabled || !ready;
+        element.toggleAttribute('data-lensify-visible', enabled && ready);
       }
       function clearVariant() {
         if (variantUrl) URL.revokeObjectURL(variantUrl);
@@ -243,7 +242,11 @@
             if (!isCurrent()) return;
             if (!(nextOverlay instanceof Blob) || nextOverlay.type !== 'image/png') {
               const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
-              const result = await extractFrontGlasses(images, () => isCurrent() && enabled && nearbyGalleries.has(gallery));
+              const result = await extractFrontGlasses(
+                images,
+                () => isCurrent() && enabled && nearbyGalleries.has(gallery),
+                () => distanceFromViewport(gallery.getBoundingClientRect()),
+              );
               if (!result) {
                 if (isCurrent()) requestedImage = undefined;
                 return;
@@ -389,8 +392,8 @@
     nearbyFrames.sort((a, b) => a.distance - b.distance);
     // Frame preparation is independent of the photo and the camera connection.
     void import(block.dataset.lensifyExtractionUrl).then(({ extractFrontGlasses }) => {
-      for (const { images } of nearbyFrames) {
-        void extractFrontGlasses(images, () => button.disabled || dialog.open).catch(() => {});
+      for (const { images, distance } of nearbyFrames) {
+        void extractFrontGlasses(images, () => button.disabled || dialog.open, () => distance).catch(() => {});
       }
     }).catch(() => {});
     let url;
