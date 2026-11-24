@@ -22,6 +22,7 @@
 {% endcapture %}
 
 <div
+  popover="manual"
   data-lensify-dialog="{{ dialog_id | escape }}"
   data-lensify-extraction-url="{{ 'glasses-extraction.js' | asset_url | escape }}"
   {{ block.shopify_attributes }}

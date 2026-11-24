@@ -3,6 +3,25 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.625rem;
+  position: fixed;
+  z-index: 100;
+  inset-block-start: max(0.75rem, env(safe-area-inset-top));
+  inset-block-end: auto;
+  inset-inline: 0;
+  width: max-content;
+  max-width: calc(100% - 1.5rem);
+  margin-inline: auto;
+  margin-block: 0;
+  padding: 0.375rem;
+  justify-content: center;
+  border-radius: 1.5rem;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 14%);
+}
+
+[data-lensify-dialog][popover]:not(:popover-open) {
+  display: none;
 }
 
 .lensify-launch,
@@ -90,6 +109,7 @@
   container-type: size;
   overflow: hidden;
   border-radius: inherit;
+  background-color: var(--color-background, #fff);
   pointer-events: none;
 }
 
@@ -106,7 +126,7 @@
   top: 50%;
   left: 50%;
   width: 100%;
-  width: max(100cqw, calc(100cqh * var(--lensify-photo-ratio)));
+  width: min(100cqw, calc(100cqh * var(--lensify-photo-ratio)));
   aspect-ratio: var(--lensify-photo-ratio);
   transform: translate(-50%, -50%);
 }
@@ -119,6 +139,8 @@
 
 .lensify-preview-photo > .lensify-preview-glasses {
   position: absolute;
+  top: calc(var(--lensify-eye-top, 50%) * 1.05); /* up - low , down - rise*/
+  /* translate: 1px 0; */
   height: auto;
   max-width: none;
 }

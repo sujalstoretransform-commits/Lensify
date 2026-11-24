@@ -1,7 +1,34 @@
 (() => {
-  let previews = [];
+  const previews = new Map();
+  let previewData;
+  let previewBlock;
+  let reconcileFrame;
   let enabled = false;
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const CAMERA_URL_TTL_MS = 30_000;
+  let cameraUrlRequest;
+  let cameraUrlExpiresAt = 0;
+
+  function getCameraUrl() {
+    if (cameraUrlRequest && Date.now() < cameraUrlExpiresAt) return cameraUrlRequest;
+
+    cameraUrlExpiresAt = Date.now() + CAMERA_URL_TTL_MS;
+    cameraUrlRequest = fetch('/apps/lensify', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error('Try-on connection failed');
+      const { cameraUrl } = await response.json();
+      const url = new URL(cameraUrl);
+      if (url.protocol !== 'https:') throw new Error('Try-on requires HTTPS');
+      return url.href;
+    }).catch((error) => {
+      cameraUrlRequest = undefined;
+      throw error;
+    });
+    return cameraUrlRequest;
+  }
 
   function previewStorage(mode, operation) {
     return new Promise((resolve, reject) => {
@@ -39,89 +66,141 @@
 
   function setTryOnEnabled(value) {
     enabled = value;
-    for (const { element } of previews) element.hidden = !value;
+    for (const preview of previews.values()) preview.updateVisibility();
     for (const block of document.querySelectorAll('[data-lensify-dialog]')) {
       const toggle = block.querySelector('[data-lensify-toggle]');
-      toggle.textContent = value ? 'Try-On ON' : 'Try-On OFF';
+      const label = value ? 'Try-On ON' : 'Try-On OFF';
+      if (toggle.textContent !== label) toggle.textContent = label;
       toggle.setAttribute('aria-pressed', String(value));
       block.querySelector('[data-lensify-retake]').hidden = false;
     }
   }
 
-  function showPreviews(data, galleries, block) {
-    const overlays = new Map(data.overlays.map(({ id, overlay }) => [id, overlay]));
+  function removePreview(gallery, { element, url, clearVariant }) {
+    element.remove();
+    URL.revokeObjectURL(url);
+    clearVariant();
+    previews.delete(gallery);
+  }
+
+  function reconcilePreviews() {
+    if (!previewData) return;
+    const data = previewData;
+    const block = previewBlock?.isConnected ? previewBlock : document.querySelector('[data-lensify-dialog]');
+    const overlays = new Map(data.overlays.map((entry) => [entry.id, entry]));
     const catalog = JSON.parse(block?.querySelector('[data-lensify-catalog]')?.value || '[]');
     const frames = new Map(catalog.map((frame) => [frame.id, frame]));
-    const next = [];
+    const galleries = getGalleries();
+    const productIds = new Map(galleries.map(({ id, gallery }) => [gallery, id]));
+    for (const [gallery, preview] of previews) {
+      if (productIds.get(gallery) !== preview.id || preview.element.parentNode !== gallery) {
+        removePreview(gallery, preview);
+      }
+    }
     for (const { id, gallery } of galleries) {
-      const overlay = overlays.get(id);
-      if (!gallery.isConnected || !(overlay instanceof Blob) || overlay.type !== 'image/png') continue;
-
-      const url = URL.createObjectURL(overlay);
+      if (previews.has(gallery)) continue;
+      const { overlay, imageUrl: overlayImageUrl, frontVerified, extractionVersion } = overlays.get(id) ?? {};
+      if (!gallery.isConnected || !frames.has(id)) continue;
+      const frame = frames.get(id);
+      const card = gallery.closest('product-card');
+      const url = frontVerified && extractionVersion === 4 && overlay instanceof Blob && overlay.type === 'image/png'
+        ? URL.createObjectURL(overlay)
+        : undefined;
       const element = document.createElement('div');
       element.className = 'lensify-preview';
+      element.hidden = true;
       element.style.setProperty('--lensify-photo-ratio', data.aspectRatio);
       const photoContainer = document.createElement('div');
       photoContainer.className = 'lensify-preview-photo';
       const photo = new Image();
       photo.src = data.photo;
       photo.alt = 'Your virtual try-on';
-      const glasses = new Image();
-      glasses.src = url;
+      let glasses = new Image();
       glasses.alt = '';
       glasses.className = 'lensify-preview-glasses';
-      Object.assign(glasses.style, data.fit);
+      const { anchorTop, top: savedTop, ...fit } = data.fit;
+      // Older previews stored an eye position with the former 103.5% scale baked in.
+      const eyeTop = anchorTop ?? parseFloat(savedTop) / 1.035;
+      Object.assign(glasses.style, fit);
+      glasses.style.setProperty('--lensify-eye-top', `${eyeTop}%`);
       photoContainer.append(photo, glasses);
       element.append(photoContainer);
       gallery.append(element);
-      const card = gallery.closest('product-card');
-      const frame = frames.get(id);
       let requestedImage;
       let variantUrl;
+      let ready = false;
+      function updateVisibility() {
+        element.hidden = !enabled || !ready;
+      }
       function clearVariant() {
         if (variantUrl) URL.revokeObjectURL(variantUrl);
         variantUrl = undefined;
       }
-      async function setVariant(variantId) {
-        const imageUrl = frame?.variantImages?.[variantId];
-        if (imageUrl === requestedImage && variantUrl) return;
-        requestedImage = imageUrl;
-        if (!imageUrl || imageUrl === frame.imageUrl) {
-          glasses.src = url;
-          glasses.hidden = imageUrl === null;
+      async function setImage(images) {
+        const request = JSON.stringify(images);
+        if (request === requestedImage) return;
+        requestedImage = request;
+        if (!images.length) {
+          ready = false;
+          updateVisibility();
           clearVariant();
           return;
         }
-        glasses.hidden = true;
+        let nextVariantUrl;
         try {
-          const { extractGlasses } = await import(block.dataset.lensifyExtractionUrl);
-          const overlay = await extractGlasses(imageUrl);
-          if (!element.isConnected || requestedImage !== imageUrl) return;
+          let nextUrl = url;
+          if (!url || !images.some(({ imageUrl }) => imageUrl === overlayImageUrl)) {
+            const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
+            const { overlay } = await extractFrontGlasses(images);
+            if (!element.isConnected || requestedImage !== request) return;
+            nextVariantUrl = URL.createObjectURL(overlay);
+            nextUrl = nextVariantUrl;
+          }
+          const nextGlasses = glasses.cloneNode(false);
+          nextGlasses.src = nextUrl;
+          await nextGlasses.decode();
+          if (!element.isConnected || requestedImage !== request) return;
+          glasses.replaceWith(nextGlasses);
+          glasses = nextGlasses;
           clearVariant();
-          variantUrl = URL.createObjectURL(overlay);
-          glasses.src = variantUrl;
-          glasses.hidden = false;
+          variantUrl = nextVariantUrl;
+          nextVariantUrl = undefined;
+          ready = true;
+          updateVisibility();
         } catch (error) {
-          if (!element.isConnected || requestedImage !== imageUrl) return;
-          glasses.hidden = true;
+          if (!element.isConnected || requestedImage !== request) return;
+          ready = false;
+          updateVisibility();
           clearVariant();
-          console.warn('Could not load try-on variant', error);
+          requestedImage = undefined;
+          console.warn('Could not load selected try-on image', error);
+        } finally {
+          if (nextVariantUrl) URL.revokeObjectURL(nextVariantUrl);
         }
       }
-      const selected = card?.querySelector('input[data-variant-id]:checked');
-      if (selected) void setVariant(selected.dataset.variantId);
-      next.push({ element, url, card, setVariant, clearVariant });
+      function syncGalleryImage(input = card?.querySelector('input[data-variant-id]:checked')) {
+        void setImage(getFrameImages(gallery, frame, input));
+      }
+      function warmVariant(input) {
+        const images = getFrameImages(gallery, frame, input);
+        if (!images.length || images.some(({ imageUrl }) => imageUrl === overlayImageUrl && url)) return;
+        void import(block.dataset.lensifyExtractionUrl)
+          .then(({ extractFrontGlasses }) => extractFrontGlasses(images))
+          .catch(() => {});
+      }
+      syncGalleryImage();
+      previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, updateVisibility });
     }
-    if (!next.length) return false;
+    setTryOnEnabled(enabled);
+  }
 
-    for (const { element, url, clearVariant } of previews) {
-      element.remove();
-      URL.revokeObjectURL(url);
-      clearVariant();
-    }
-    previews = next;
-    setTryOnEnabled(true);
-    return true;
+  function showPreviews(data, block) {
+    for (const [gallery, preview] of previews) removePreview(gallery, preview);
+    previewData = data;
+    previewBlock = block;
+    enabled = true;
+    reconcilePreviews();
+    return previews.size > 0;
   }
 
   function getGalleries() {
@@ -134,6 +213,46 @@
     )
   }
 
+  function getProductImageUrl(source) {
+    if (!source) return;
+    const url = new URL(source, window.location.href);
+    if (url.protocol !== 'https:') return;
+    url.searchParams.set('width', '1280');
+    url.searchParams.sort();
+    return url.href;
+  }
+
+  function getGalleryImages(gallery, defaultImageUrl) {
+    const images = new Map();
+    const media = gallery.querySelectorAll(
+      'slideshow-slide:not([hidden]) img, .product-media-container img, .card-gallery__image--hover, .product-card__image--secondary'
+    );
+    for (const image of media) {
+      if (image.closest('slideshow-slide[hidden]')) continue;
+      const imageUrl = getProductImageUrl(image.getAttribute('src') || image.currentSrc);
+      const alt = image.alt || '';
+      if (!imageUrl || /\b(?:angled?|three[\s-]quarter)\b|45°/i.test(alt)) continue;
+      const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
+      images.set(imageUrl, labeledFront || images.get(imageUrl) || false);
+    }
+    const fallback = getProductImageUrl(defaultImageUrl);
+    if (!images.size && fallback) images.set(fallback, false);
+    return Array.from(images, ([imageUrl, labeledFront]) => ({ imageUrl, labeledFront }))
+      .sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront))
+      .slice(0, 5);
+  }
+
+  function getFrameImages(gallery, frame, input) {
+    const variantId = input?.dataset.variantId;
+    if (!variantId) return getGalleryImages(gallery, frame.imageUrl);
+
+    // The gallery can still show the previous swatch while the theme updates it.
+    const variantUrl = getProductImageUrl(frame.variantImages?.[variantId]);
+    if (!variantUrl) return [];
+    const labeledImage = getGalleryImages(gallery).find(({ imageUrl }) => imageUrl === variantUrl);
+    return [labeledImage ?? { imageUrl: variantUrl, labeledFront: false }];
+  }
+
   async function openCamera(block, button) {
     const dialog = document.getElementById(block.dataset.lensifyDialog);
     if (!(dialog instanceof HTMLDialogElement) || dialog.open) return;
@@ -144,8 +263,15 @@
 
     const galleries = getGalleries();
 
-    const visibleProductIds = new Set(galleries.map(({ id }) => id));
-    const frames = catalog.filter(({ id, imageUrl }) => imageUrl && visibleProductIds.has(id));
+    const visibleGalleries = new Map(galleries.map(({ id, gallery }) => [id, gallery]));
+    const frames = catalog
+      .filter(({ id, imageUrl }) => imageUrl && visibleGalleries.has(id))
+      .map((frame) => {
+        const gallery = visibleGalleries.get(frame.id);
+        const selected = gallery.closest('product-card')?.querySelector('input[data-variant-id]:checked');
+        return { id: frame.id, images: getFrameImages(gallery, frame, selected) };
+      })
+      .filter(({ images }) => images.length);
     if (!frames.length) {
       showStatus(block, 'No matching frames are available on this page.');
       return;
@@ -156,15 +282,7 @@
     button.disabled = true;
     let url;
     try {
-      const response = await fetch('/apps/lensify', {
-        headers: { Accept: 'application/json' },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) throw new Error('Try-on connection failed');
-      const { cameraUrl } = await response.json();
-      url = new URL(cameraUrl);
-      if (url.protocol !== 'https:') throw new Error('Try-on requires HTTPS');
+      url = new URL(await getCameraUrl());
     } catch {
       showStatus(block, 'Try-on is temporarily unavailable. Please try again.');
       return;
@@ -185,7 +303,7 @@
       } else if (data?.type === 'LENSIFY_STOREFRONT_PREVIEWS') {
         const { photo, aspectRatio, fit, overlays } = data;
 
-        if (!showPreviews(data, galleries, block)) {
+        if (!showPreviews(data, block)) {
           showStatus(block, 'The try-on previews are unavailable on this page.');
         }
 
@@ -214,13 +332,40 @@
     dialog.showModal();
   }
 
+  function prefetchCameraUrl(event) {
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest('[data-lensify-dialog] [data-lensify-launch]');
+    if (!button || (previewData && button.hasAttribute('data-lensify-toggle'))) return;
+    void getCameraUrl().catch(() => {});
+  }
+
+  document.addEventListener('pointerover', prefetchCameraUrl);
+  document.addEventListener('focusin', prefetchCameraUrl);
+
+  function prefetchSwatch(event) {
+    if (!enabled || !(event.target instanceof Element)) return;
+    const input = event.target.closest('input[data-variant-id]') ?? event.target.closest('label')?.control;
+    if (!(input instanceof HTMLInputElement) || !input.dataset.variantId) return;
+    const card = input.closest('product-card');
+    if (!card) return;
+    for (const gallery of card.querySelectorAll('.card-gallery')) {
+      previews.get(gallery)?.warmVariant(input);
+    }
+  }
+
+  document.addEventListener('pointerover', prefetchSwatch);
+  document.addEventListener('focusin', prefetchSwatch);
+
   document.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
     const button = event.target.closest('[data-lensify-launch]');
     const block = button?.closest('[data-lensify-dialog]');
     if (!block) return;
 
-    if (previews.length && button.hasAttribute('data-lensify-toggle')) {
+    if (previewData && button.hasAttribute('data-lensify-toggle')) {
+      if (!enabled) {
+        for (const preview of previews.values()) preview.syncGalleryImage();
+      }
       setTryOnEnabled(!enabled);
     } else {
       openCamera(block, button);
@@ -232,8 +377,10 @@
     if (!(input instanceof HTMLInputElement) || !input.checked || !input.dataset.variantId) return;
     const card = input.closest('product-card');
     if (!card) return;
-    const preview = previews.find((entry) => entry.card === card);
-    if (preview) void preview.setVariant(input.dataset.variantId);
+    for (const gallery of card.querySelectorAll('.card-gallery')) {
+      const preview = previews.get(gallery);
+      if (preview) preview.syncGalleryImage(input);
+    }
   }, true);
 
   async function restorePreview() {
@@ -246,17 +393,43 @@
         return;
       }
 
-      if (!previews.length) {
-        showPreviews(saved, getGalleries(), document.querySelector('[data-lensify-dialog]'));
+      if (!previewData) {
+        showPreviews(saved, document.querySelector('[data-lensify-dialog]'));
       }
     } catch (error) {
       console.warn('Could not restore try-on preview', error);
     }
   }
 
+  new MutationObserver(() => {
+    if (!previewData || reconcileFrame !== undefined) return;
+    reconcileFrame = requestAnimationFrame(() => {
+      reconcileFrame = undefined;
+      reconcilePreviews();
+    });
+  }).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-product-id'],
+  });
+
+  function showControls(root) {
+    for (const block of root.querySelectorAll('[data-lensify-dialog]')) {
+      block.showPopover?.();
+    }
+  }
+
+  document.addEventListener('shopify:section:load', (event) => showControls(event.target));
+
+  function initialize() {
+    showControls(document);
+    void restorePreview();
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', restorePreview, { once: true });
+    document.addEventListener('DOMContentLoaded', initialize, { once: true });
   } else {
-    restorePreview();
+    initialize();
   }
 })();

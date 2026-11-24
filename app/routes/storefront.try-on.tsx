@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, useLoaderData, type LoaderFunctionArgs, type HeadersFunction } from "react-router";
 import TryOnCamera from "../components/TryOnCamera";
-import { extractGlasses } from "../services/glasses-extraction.client";
+import { extractFrontGlasses } from "../services/glasses-extraction.client";
 import { getGlassesFit } from "../services/glasses-fit";
 import type { FaceGeometry } from "../types/face-geometry";
 
-type StorefrontFrame = { id: string; imageUrl: string };
+type StorefrontFrame = { id: string; images: Parameters<typeof extractFrontGlasses>[0] };
 
 function isStorefrontFrame(value: unknown): value is StorefrontFrame {
-    if (!value || typeof value !== "object" || !("imageUrl" in value) || !("id" in value)) return false;
+    if (!value || typeof value !== "object" || !("images" in value) || !("id" in value)) return false;
     return typeof value.id === "string" && /^\d+$/.test(value.id)
-        && typeof value.imageUrl === "string" && /^(https:)?\/\/[^/]/i.test(value.imageUrl);
+        && Array.isArray(value.images) && value.images.length > 0 && value.images.length <= 5
+        && value.images.every((image) => image && typeof image.imageUrl === "string"
+            && /^https:\/\/[^/]/i.test(image.imageUrl) && typeof image.labeledFront === "boolean");
 }
 
 export function loader({ request }: LoaderFunctionArgs) {
@@ -69,9 +71,11 @@ export default function StorefrontTryOn() {
         if (!storefrontOrigin || !frames) return;
         captureAccepted.current = true;
         setStatus("Preparing try-on previews…");
-        const results = await Promise.allSettled(frames.map(async ({ id, imageUrl }) => ({
+        const results = await Promise.allSettled(frames.map(async ({ id, images }) => ({
             id,
-            overlay: await extractGlasses(imageUrl),
+            ...await extractFrontGlasses(images),
+            frontVerified: true,
+            extractionVersion: 4,
         })));
         const overlays = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
         if (!overlays.length) {

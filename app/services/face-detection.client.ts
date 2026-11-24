@@ -1,21 +1,20 @@
-import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision"
+import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import type { GlassesDetector } from "@framefind/core";
 
-let faceLandmarker: FaceLandmarker | null = null;
+let faceLandmarker: Promise<FaceLandmarker> | undefined;
 let glassesDetector: Promise<GlassesDetector> | undefined;
 
 export const STRAIGHT_FACE_ERROR = "Please look straight at the camera and retake your photo.";
 
 export const isStraightFace = (yaw: number) => Math.abs(yaw) < 0.3;
 
-export const getFaceLandmarker = async () => {
-    if (faceLandmarker) return faceLandmarker;
-
+async function loadFaceLandmarker() {
+    const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
     const vision = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
     )
 
-    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    return FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
             modelAssetPath: "/models/face_landmarker.task",
             delegate: "GPU"
@@ -25,6 +24,13 @@ export const getFaceLandmarker = async () => {
         outputFacialTransformationMatrixes: true,
     })
 
+}
+
+function getFaceLandmarker() {
+    faceLandmarker ??= loadFaceLandmarker().catch((error) => {
+        faceLandmarker = undefined;
+        throw error;
+    });
     return faceLandmarker;
 }
 
@@ -54,12 +60,20 @@ async function loadGlassesDetector() {
     return detector;
 }
 
-export async function isWearingGlasses(image: HTMLImageElement, landmarks: NormalizedLandmark[]) {
+function getGlassesDetector() {
     glassesDetector ??= loadGlassesDetector().catch((error) => {
         glassesDetector = undefined;
         throw error;
     });
-    const detector = await glassesDetector;
+    return glassesDetector;
+}
+
+export function preloadFaceDetection() {
+    void Promise.allSettled([getFaceLandmarker(), getGlassesDetector()]);
+}
+
+export async function isWearingGlasses(image: HTMLImageElement, landmarks: NormalizedLandmark[]) {
+    const detector = await getGlassesDetector();
     const canvas = document.createElement("canvas");
     canvas.width = image.naturalWidth;
     canvas.height = image.naturalHeight;

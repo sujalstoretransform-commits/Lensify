@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { detectFaces, getEyePositions, isStraightFace, isWearingGlasses, STRAIGHT_FACE_ERROR } from "app/services/face-detection.client";
+import { detectFaces, getEyePositions, isStraightFace, isWearingGlasses, preloadFaceDetection, STRAIGHT_FACE_ERROR } from "app/services/face-detection.client";
 import type { FaceGeometry } from "../types/face-geometry";
 
 interface TryOnCameraProps {
@@ -68,6 +68,7 @@ export default function TryOnCamera({
 
                 if (!cancelled) {
                     setLoading(false);
+                    preloadFaceDetection();
                 }
             } catch (err) {
                 if (cancelled) return;
@@ -157,11 +158,7 @@ export default function TryOnCamera({
             const image = new Image()
 
             image.src = photo;
-
-            await new Promise<void>((resolve, reject) => {
-                image.onload = () => resolve();
-                image.onerror = () => reject(new Error("Could not load captured photo."))
-            })
+            await image.decode();
 
             const result = await detectFaces(image)
             const faceCount = result.faceLandmarks.length;
