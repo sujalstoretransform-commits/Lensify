@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, useLoaderData, type LoaderFunctionArgs, type HeadersFunction } from "react-router";
 import TryOnCamera from "../components/TryOnCamera";
-import { extractFrontGlasses } from "../services/glasses-extraction.client";
+import type { extractFrontGlasses } from "../services/glasses-extraction.client";
 import { getGlassesFit } from "../services/glasses-fit";
 import type { FaceGeometry } from "../types/face-geometry";
 
@@ -53,7 +53,7 @@ export default function StorefrontTryOn() {
             if (event.data?.type !== "LENSIFY_STOREFRONT_CATALOG") return;
             window.removeEventListener("message", receiveCatalog);
             const catalog: unknown = event.data.catalog;
-            setFrames(Array.isArray(catalog) && catalog.length <= 50 && catalog.every(isStorefrontFrame) ? catalog : null);
+            setFrames(Array.isArray(catalog) && catalog.length <= 250 && catalog.every(isStorefrontFrame) ? catalog : null);
         };
         const closeOnEscape = (event: KeyboardEvent) => {
             if (event.key === "Escape") closeModal();
@@ -67,27 +67,16 @@ export default function StorefrontTryOn() {
         };
     }, [closeModal, storefrontOrigin]);
 
-    async function preparePreviews(photo: string, geometry: FaceGeometry) {
+    function preparePreviews(photo: string, geometry: FaceGeometry) {
         if (!storefrontOrigin || !frames) return;
         captureAccepted.current = true;
         setStatus("Preparing try-on previews…");
-        const results = await Promise.allSettled(frames.map(async ({ id, images }) => ({
-            id,
-            ...await extractFrontGlasses(images),
-            frontVerified: true,
-            extractionVersion: 4,
-        })));
-        const overlays = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-        if (!overlays.length) {
-            setStatus("The frame previews couldn’t be prepared. Close this window and try again.");
-            return;
-        }
         window.parent.postMessage({
             type: "LENSIFY_STOREFRONT_PREVIEWS",
             photo,
             aspectRatio: geometry.imageWidth / geometry.imageHeight,
             fit: getGlassesFit(geometry),
-            overlays,
+            overlays: [],
         }, storefrontOrigin);
     }
 

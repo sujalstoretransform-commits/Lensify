@@ -24,6 +24,7 @@
 <div
   popover="manual"
   data-lensify-dialog="{{ dialog_id | escape }}"
+  {% if block.settings.collection != blank and collection.handle != block.settings.collection.handle %}data-lensify-restrict-collection{% endif %}
   data-lensify-extraction-url="{{ 'glasses-extraction.js' | asset_url | escape }}"
   {{ block.shopify_attributes }}
 >

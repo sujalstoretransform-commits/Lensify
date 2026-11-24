@@ -131,8 +131,9 @@
     for (const { id, gallery } of galleries) {
       if (previews.has(gallery)) continue;
       const { overlay, imageUrl: overlayImageUrl, frontVerified, extractionVersion } = overlays.get(id) ?? {};
-      if (!gallery.isConnected || !frames.has(id)) continue;
-      const frame = frames.get(id);
+      if (!gallery.isConnected) continue;
+      const frame = frames.get(id) ?? {};
+      if (!frames.has(id) && block?.hasAttribute('data-lensify-restrict-collection')) continue;
       const card = gallery.closest('product-card');
       const url = frontVerified && extractionVersion === EXTRACTION_VERSION && overlay instanceof Blob && overlay.type === 'image/png'
         ? URL.createObjectURL(overlay)
@@ -247,7 +248,7 @@
         id: gallery.dataset.productId || gallery.closest('product-card')?.dataset.productId,
         gallery,
       })
-    )
+    ).filter(({ id }) => id);
   }
 
   function getProductImageUrl(source) {
@@ -300,12 +301,14 @@
     const galleries = getGalleries();
 
     const visibleGalleries = new Map(galleries.map(({ id, gallery }) => [id, gallery]));
-    const frames = catalog
-      .filter(({ id, imageUrl }) => imageUrl && visibleGalleries.has(id))
-      .map((frame) => {
-        const gallery = visibleGalleries.get(frame.id);
+    const catalogById = new Map(catalog.map((frame) => [frame.id, frame]));
+    const restrictCollection = block.hasAttribute('data-lensify-restrict-collection');
+    const frames = Array.from(visibleGalleries)
+      .filter(([id]) => !restrictCollection || catalogById.has(id))
+      .map(([id, gallery]) => {
+        const frame = catalogById.get(id) ?? {};
         const selected = gallery.closest('product-card')?.querySelector('input[data-variant-id]:checked');
-        return { id: frame.id, images: getFrameImages(gallery, frame, selected) };
+        return { id, images: getFrameImages(gallery, frame, selected) };
       })
       .filter(({ images }) => images.length);
     if (!frames.length) {

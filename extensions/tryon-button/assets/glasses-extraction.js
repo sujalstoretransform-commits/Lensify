@@ -365,8 +365,21 @@ export const extractGlasses = (imageUrl, requireFront = false) => {
     return extraction;
 };
 
+let extractionQueue = Promise.resolve();
+
 /** @param {{ imageUrl: string; labeledFront: boolean }[]} candidates */
-export async function extractFrontGlasses(candidates) {
+export function extractFrontGlasses(candidates) {
+    const job = extractionQueue.then(async () => {
+        // Give the storefront a chance to paint and handle input between frames.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return extractFrame(candidates);
+    });
+    extractionQueue = job.then(() => {}, () => {});
+    return job;
+}
+
+/** @param {{ imageUrl: string; labeledFront: boolean }[]} candidates */
+async function extractFrame(candidates) {
     for (const { imageUrl, labeledFront } of candidates) {
         try {
             return { imageUrl, overlay: await extractGlasses(imageUrl, !labeledFront) };
