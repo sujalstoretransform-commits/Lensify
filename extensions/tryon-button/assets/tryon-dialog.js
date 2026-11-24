@@ -111,6 +111,19 @@
 
   function setTryOnEnabled(value) {
     enabled = value;
+    if (value) {
+      productObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-product-id'],
+      });
+    } else {
+      productObserver.disconnect();
+      if (reconcileFrame !== undefined) cancelAnimationFrame(reconcileFrame);
+      reconcileFrame = undefined;
+      for (const [gallery, preview] of previews) removePreview(gallery, preview);
+    }
     for (const preview of previews.values()) preview.updateVisibility();
     for (const block of document.querySelectorAll('[data-lensify-dialog]')) {
       const toggle = block.querySelector('[data-lensify-toggle]');
@@ -431,9 +444,7 @@
 
     if (previewData && button.hasAttribute('data-lensify-toggle')) {
       setTryOnEnabled(!enabled);
-      if (enabled) {
-        for (const preview of previews.values()) preview.syncGalleryImage();
-      }
+      if (enabled) reconcilePreviews();
     } else {
       openCamera(block, button);
     }
@@ -461,24 +472,29 @@
       }
 
       if (!previewData) {
-        showPreviews(saved, document.querySelector('[data-lensify-dialog]'));
+        previewData = saved;
+        previewBlock = document.querySelector('[data-lensify-dialog]');
+        setTryOnEnabled(false);
       }
     } catch (error) {
       console.warn('Could not restore try-on preview', error);
     }
   }
 
-  new MutationObserver(() => {
-    if (!previewData || reconcileFrame !== undefined) return;
+  const productObserver = new MutationObserver((records) => {
+    if (!enabled || reconcileFrame !== undefined) return;
+    const cardSelector = 'product-card, .card-gallery';
+    const cardsChanged = records.some((record) => {
+      if (record.type === 'attributes') return record.target.matches(cardSelector);
+      return [...record.addedNodes, ...record.removedNodes].some((node) =>
+        node instanceof Element && (node.matches(cardSelector) || node.querySelector(cardSelector))
+      );
+    });
+    if (!cardsChanged) return;
     reconcileFrame = requestAnimationFrame(() => {
       reconcileFrame = undefined;
       reconcilePreviews();
     });
-  }).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['data-product-id'],
   });
 
   function showControls(root) {
