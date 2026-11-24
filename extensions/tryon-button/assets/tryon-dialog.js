@@ -164,7 +164,7 @@
     previews.delete(gallery);
   }
 
-  function reconcilePreviews() {
+  function reconcilePreviews(syncExisting = false) {
     if (!previewData) return;
     const data = previewData;
     const block = previewBlock?.isConnected ? previewBlock : document.querySelector('[data-lensify-dialog]');
@@ -181,7 +181,7 @@
     for (const { id, gallery } of galleries) {
       const existing = previews.get(gallery);
       if (existing) {
-        existing.syncGalleryImage();
+        if (syncExisting) existing.syncGalleryImage();
         continue;
       }
       const { overlay, imageUrl: overlayImageUrl, frontVerified, extractionVersion } = overlays.get(id) ?? {};
@@ -244,8 +244,10 @@
               const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
               const result = await extractFrontGlasses(
                 images,
-                () => isCurrent() && enabled && nearbyGalleries.has(gallery),
-                () => distanceFromViewport(gallery.getBoundingClientRect()),
+                () => isCurrent() && enabled,
+                () => nearbyGalleries.has(gallery)
+                  ? distanceFromViewport(gallery.getBoundingClientRect())
+                  : Infinity,
               );
               if (!result) {
                 if (isCurrent()) requestedImage = undefined;
@@ -282,7 +284,7 @@
         }
       }
       function syncGalleryImage(input = card?.querySelector('input[data-variant-id]:checked')) {
-        if (!enabled || !nearbyGalleries.has(gallery)) return;
+        if (!enabled) return;
         void setImage(getFrameImages(gallery, frame, input));
       }
       function warmVariant(input) {
@@ -294,6 +296,7 @@
       }
       previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, updateVisibility });
       galleryObserver.observe(gallery);
+      syncGalleryImage();
     }
     setTryOnEnabled(enabled);
   }
@@ -479,7 +482,7 @@
     if (previewData && button.hasAttribute('data-lensify-toggle')) {
       setTryOnEnabled(!enabled);
       rememberTryOnState(enabled);
-      if (enabled) reconcilePreviews();
+      if (enabled) reconcilePreviews(true);
     } else {
       openCamera(block, button);
     }
