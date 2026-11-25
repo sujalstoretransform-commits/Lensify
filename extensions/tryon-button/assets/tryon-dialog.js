@@ -24,7 +24,7 @@
   let enabled = false;
   const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const EXTRACTION_VERSION = 4;
+  const EXTRACTION_VERSION = 5;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -228,9 +228,9 @@
         requestedImage = request;
         const requestId = ++imageRequest;
         const isCurrent = () => element.isConnected && imageRequest === requestId;
+        ready = false;
+        updateVisibility();
         if (!images.length) {
-          ready = false;
-          updateVisibility();
           clearVariant();
           return;
         }
@@ -346,34 +346,27 @@
     return url.href;
   }
 
-  function getGalleryImages(gallery, defaultImageUrl) {
-    const images = new Map();
-    const media = gallery.querySelectorAll(
-      'slideshow-slide img, .product-media-container img, .card-gallery__image--hover, .product-card__image--secondary'
-    );
-    for (const image of media) {
-      const imageUrl = getProductImageUrl(image.getAttribute('src')) || getProductImageUrl(image.currentSrc);
-      const alt = image.alt || '';
-      if (!imageUrl || /\b(?:angled?|three[\s-]quarter)\b|45°/i.test(alt)) continue;
-      const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
-      images.set(imageUrl, labeledFront || images.get(imageUrl) || false);
-    }
-    const fallback = getProductImageUrl(defaultImageUrl);
-    if (fallback && !images.has(fallback)) images.set(fallback, false);
-    return Array.from(images, ([imageUrl, labeledFront]) => ({ imageUrl, labeledFront }))
-      .sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront))
-      .slice(0, 5);
-  }
-
   function getFrameImages(gallery, frame, input) {
     const variantId = input?.dataset.variantId;
-    if (!variantId) return getGalleryImages(gallery, frame.imageUrl);
-
     // The gallery can still show the previous swatch while the theme updates it.
     const variantUrl = getProductImageUrl(frame.variantImages?.[variantId]);
-    if (!variantUrl) return getGalleryImages(gallery, frame.imageUrl);
-    const labeledImage = getGalleryImages(gallery).find(({ imageUrl }) => imageUrl === variantUrl);
-    return [labeledImage ?? { imageUrl: variantUrl, labeledFront: false }];
+    const media = Array.from(gallery.querySelectorAll('slideshow-slide img, .product-media-container img'));
+    const imageUrlFor = (image) => getProductImageUrl(image?.getAttribute('src')) || getProductImageUrl(image?.currentSrc);
+    const primary = media.find((image) => !image.matches('.card-gallery__image--hover, .product-card__image--secondary'));
+    const primaryUrl = getProductImageUrl(frame.imageUrl) || imageUrlFor(primary);
+    const urls = variantUrl ? [variantUrl] : [primaryUrl, ...media.map(imageUrlFor)];
+    const candidates = [];
+    for (const imageUrl of new Set(urls)) {
+      if (!imageUrl) continue;
+      const alt = media.find((image) => imageUrlFor(image) === imageUrl)?.alt || '';
+      if (/\b(?:angled?|three[\s-]quarter|(?:back|rear|side)[\s-]+(?:view|profile)|view from (?:behind|the back|the rear|the side))\b|45°/i.test(alt)) continue;
+      if (/\b(?:folded|closed)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:folded|closed)\b/i.test(alt)) continue;
+      const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
+      const openArms = /\b(?:open|unfolded)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:open|unfolded)\b/i.test(alt);
+      candidates.push({ imageUrl, labeledFront, openArms });
+    }
+    return candidates.sort((a, b) => Number(b.openArms) - Number(a.openArms)).slice(0, 5)
+      .map(({ imageUrl, labeledFront }) => ({ imageUrl, labeledFront }));
   }
 
   async function openCamera(block, button) {

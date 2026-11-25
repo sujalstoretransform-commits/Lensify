@@ -55,6 +55,35 @@ function clearBackground({ data, width, height }) {
     }
 }
 
+/**
+ * Folded temples can form dark bands across both lens interiors.
+ * Compare each band against the brighter tint in that same lens.
+ * @param {ImageData} pixels
+ * @param {ReturnType<typeof getVisibleBounds>} bounds
+ */
+function hasFoldedTemples({ data, width }, { minX, minY, maxX, maxY }) {
+    const frameWidth = maxX - minX;
+    const frameHeight = Math.min(maxY - minY, frameWidth * 0.45);
+    if (frameWidth < 40 || frameHeight < 20) return false;
+
+    return [0.17, 0.61].every((start) => {
+        const columns = Array.from({ length: 12 }, (_, column) => {
+            const x = minX + Math.round(frameWidth * (start + column * 0.02));
+            return Array.from({ length: 16 }, (_, row) => {
+                const y = minY + Math.round(frameHeight * (0.25 + row * 0.025));
+                const index = (y * width + x) * 4;
+                if (data[index + 3] <= 128) return 255;
+                return Math.max(data[index], data[index + 1], data[index + 2]);
+            });
+        });
+        const levels = columns.flat().sort((a, b) => a - b);
+        const tint = levels[Math.floor(levels.length * 0.75)];
+        if (tint < 135) return false;
+        const dark = Math.min(110, tint - 65);
+        return columns.filter((column) => column.filter((level) => level <= dark).length >= 3).length >= 8;
+    });
+}
+
 /** @param {ImageData} pixels @param {number} minX @param {number} maxX */
 function clearLensOpenings({ data, width, height }, minX, maxX) {
     const visited = new Uint8Array(width * height);
@@ -308,6 +337,9 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         let { minX, minY, maxX, maxY } = getVisibleBounds(pixels);
         if (maxX < minX || maxY < minY) {
             throw new Error("No glasses found in product image");
+        }
+        if (hasFoldedTemples(pixels, { minX, minY, maxX, maxY })) {
+            throw new Error("Folded temple arms obscure the lenses");
         }
         const hasMatchingLensOpenings = clearLensOpenings(pixels, minX, maxX);
         const symmetricFrame = !hasMatchingLensOpenings && hasSymmetricFrame(pixels);
