@@ -84,6 +84,62 @@ function hasFoldedTemples({ data, width }, { minX, minY, maxX, maxY }) {
     });
 }
 
+/**
+ * Blend visible temples toward the adjacent lens tint, inside the rim.
+ * @param {ImageData} pixels
+ * @param {ReturnType<typeof getVisibleBounds>} bounds
+ * @param {boolean} crossed
+ */
+function softenTemples({ data, width }, { minX, minY, maxX, maxY }, crossed) {
+    const frameWidth = maxX - minX;
+    const frameHeight = Math.min(maxY - minY, frameWidth * 0.45);
+    if (frameWidth < 40 || frameHeight < 20) return;
+
+    const source = new Uint8ClampedArray(data);
+    for (const direction of [1, -1]) {
+        const edge = direction === 1 ? minX : maxX;
+        const pixelIndex = (x, y) => (y * width + edge + direction * Math.round(frameWidth * x)) * 4;
+        const top = minY + Math.ceil(frameHeight * 0.16);
+        const bottom = minY + Math.floor(frameHeight * (crossed ? 0.78 : 0.53));
+        const outer = Math.ceil(frameWidth * 0.085);
+        const inner = Math.floor(frameWidth * (crossed ? 0.41 : 0.21));
+        const sampleRadius = Math.ceil(frameHeight * 0.23);
+        for (let y = top; y <= bottom; y++) {
+            for (let offset = outer; offset <= inner; offset++) {
+                const index = (y * width + edge + direction * offset) * 4;
+                if (source[index + 3] <= 128) continue;
+                const level = Math.max(source[index], source[index + 1], source[index + 2]);
+                if (level > 135) continue;
+                let reference = pixelIndex(0.26, y);
+                if (crossed) {
+                    reference = -1;
+                    for (let distance = 1; distance <= sampleRadius && reference < 0; distance++) {
+                        for (const row of [y - distance, y + distance]) {
+                            if (row < top || row > bottom) continue;
+                            const sample = index + (row - y) * width * 4;
+                            const brightness = Math.max(source[sample], source[sample + 1], source[sample + 2]);
+                            if (source[sample + 3] > 128 && brightness >= Math.max(145, level + 55)) {
+                                reference = sample;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (reference < 0 || source[reference + 3] <= 128) continue;
+                const brightness = Math.max(source[reference], source[reference + 1], source[reference + 2]);
+                if (brightness < 145) continue;
+                const contrast = brightness - level;
+                if (contrast < 45) continue;
+                const feather = Math.min(1, (offset - outer) / 2, (inner - offset) / 2, (y - top) / 2, (bottom - y) / 2);
+                const blend = feather * Math.min(1, (contrast - 45) / 25);
+                for (let channel = 0; channel < 3; channel++) {
+                    data[index + channel] += (source[reference + channel] - data[index + channel]) * blend;
+                }
+            }
+        }
+    }
+}
+
 /** @param {ImageData} pixels @param {number} minX @param {number} maxX */
 function clearLensOpenings({ data, width, height }, minX, maxX) {
     const visited = new Uint8Array(width * height);
@@ -338,9 +394,8 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         if (maxX < minX || maxY < minY) {
             throw new Error("No glasses found in product image");
         }
-        if (hasFoldedTemples(pixels, { minX, minY, maxX, maxY })) {
-            throw new Error("Folded temple arms obscure the lenses");
-        }
+        const bounds = { minX, minY, maxX, maxY };
+        const crossedTemples = hasFoldedTemples(pixels, bounds);
         const hasMatchingLensOpenings = clearLensOpenings(pixels, minX, maxX);
         const symmetricFrame = !hasMatchingLensOpenings && hasSymmetricFrame(pixels);
         if (requireFront && !hasMatchingLensOpenings && !symmetricFrame) {
@@ -360,6 +415,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
             }
         }
 
+        softenTemples(pixels, bounds, crossedTemples);
         ({ minX, minY, maxX, maxY } = getVisibleBounds(pixels));
         if (maxX < minX || maxY < minY) throw new Error("No glasses found after cleanup");
         context.putImageData(pixels, 0, 0);

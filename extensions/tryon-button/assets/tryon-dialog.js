@@ -24,7 +24,7 @@
   let enabled = false;
   const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const EXTRACTION_VERSION = 5;
+  const EXTRACTION_VERSION = 7;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -360,12 +360,12 @@
       if (!imageUrl) continue;
       const alt = media.find((image) => imageUrlFor(image) === imageUrl)?.alt || '';
       if (/\b(?:angled?|three[\s-]quarter|(?:back|rear|side)[\s-]+(?:view|profile)|view from (?:behind|the back|the rear|the side))\b|45°/i.test(alt)) continue;
-      if (/\b(?:folded|closed)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:folded|closed)\b/i.test(alt)) continue;
+      const foldedArms = /\b(?:folded|closed|crossed)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:folded|closed|crossed)\b/i.test(alt);
       const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
       const openArms = /\b(?:open|unfolded)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:open|unfolded)\b/i.test(alt);
-      candidates.push({ imageUrl, labeledFront, openArms });
+      candidates.push({ imageUrl, labeledFront, priority: Number(openArms) - Number(foldedArms) });
     }
-    return candidates.sort((a, b) => Number(b.openArms) - Number(a.openArms)).slice(0, 5)
+    return candidates.sort((a, b) => b.priority - a.priority).slice(0, 5)
       .map(({ imageUrl, labeledFront }) => ({ imageUrl, labeledFront }));
   }
 
