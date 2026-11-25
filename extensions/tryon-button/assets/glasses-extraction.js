@@ -25,17 +25,18 @@ function clearBackground({ data, width, height }) {
     const queue = new Int32Array(visited.length);
     let tail = 0;
 
-    // Follow gradual gray shadows from the white backdrop, stopping at sharp
-    // changes in brightness and at dark or colored frame pixels.
-    function enqueue(pixel, previousLevel = 255) {
+    // Start on white or light gray studio backdrops at the image boundary.
+    // Follow gradual shadows while preserving sharp changes around the frame.
+    function enqueue(pixel, previousLevel) {
         if (visited[pixel]) return;
         const index = pixel * 4;
         const lightest = Math.max(data[index], data[index + 1], data[index + 2]);
         const darkest = Math.min(data[index], data[index + 1], data[index + 2]);
-        const white = darkest >= 242 && lightest - darkest <= 10;
-        const shadow = darkest >= 115 && lightest - darkest <= 18
-            && previousLevel - darkest <= 9;
-        if (data[index + 3] > 24 && !white && !shadow) return;
+        const paleNeutral = darkest >= 232 && lightest - darkest <= 10;
+        const backdrop = lightest - darkest <= 18 && (previousLevel === undefined
+            ? darkest >= 215
+            : darkest >= 115 && previousLevel - darkest <= 9);
+        if (data[index + 3] > 24 && !paleNeutral && !backdrop) return;
         visited[pixel] = 1;
         data[index + 3] = 0;
         queue[tail++] = pixel;
@@ -61,6 +62,28 @@ function clearBackground({ data, width, height }) {
         if (pixel >= width) enqueue(pixel - width, level);
         if (pixel < width * (height - 1)) enqueue(pixel + width, level);
     }
+}
+
+/**
+ * Reject residual rectangular backdrops before they can cover the face.
+ * @param {ImageData} pixels
+ * @param {ReturnType<typeof getVisibleBounds>} bounds
+ */
+function hasRectangularBackdrop({ data, width }, { minX, minY, maxX, maxY }) {
+    let top = 0;
+    let bottom = 0;
+    let left = 0;
+    let right = 0;
+    for (let x = minX; x <= maxX; x++) {
+        if (data[(minY * width + x) * 4 + 3] > 128) top++;
+        if (data[(maxY * width + x) * 4 + 3] > 128) bottom++;
+    }
+    for (let y = minY; y <= maxY; y++) {
+        if (data[(y * width + minX) * 4 + 3] > 128) left++;
+        if (data[(y * width + maxX) * 4 + 3] > 128) right++;
+    }
+    return Math.min(top, bottom) >= (maxX - minX + 1) * 0.9
+        && Math.min(left, right) >= (maxY - minY + 1) * 0.9;
 }
 
 /**
@@ -446,6 +469,9 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
             throw new Error("No glasses found in product image");
         }
         const bounds = { minX, minY, maxX, maxY };
+        if (hasRectangularBackdrop(pixels, bounds)) {
+            throw new Error("Could not separate the frame from the product backdrop");
+        }
         const crossedTemples = hasFoldedTemples(pixels, bounds);
         const hasMatchingLensOpenings = clearLensOpenings(pixels, minX, maxX);
         const symmetricFrame = !hasMatchingLensOpenings && hasSymmetricFrame(pixels);
