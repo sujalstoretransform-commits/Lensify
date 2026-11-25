@@ -167,14 +167,16 @@
   function reconcilePreviews(syncExisting = false) {
     if (!previewData) return;
     const data = previewData;
-    const block = previewBlock?.isConnected ? previewBlock : document.querySelector('[data-lensify-dialog]');
+    const block = previewBlock?.isConnected ? previewBlock : getRestoreBlock();
+    const blockChanged = block !== previewBlock;
+    previewBlock = block;
     const overlays = new Map(data.overlays.map((entry) => [entry.id, entry]));
     const catalog = JSON.parse(block?.querySelector('[data-lensify-catalog]')?.value || '[]');
     const frames = new Map(catalog.map((frame) => [frame.id, frame]));
-    const galleries = getGalleries();
+    const galleries = getEligibleGalleries(block, frames);
     const productIds = new Map(galleries.map(({ id, gallery }) => [gallery, id]));
     for (const [gallery, preview] of previews) {
-      if (productIds.get(gallery) !== preview.id || preview.element.parentNode !== gallery) {
+      if (blockChanged || productIds.get(gallery) !== preview.id || preview.element.parentNode !== gallery) {
         removePreview(gallery, preview);
       }
     }
@@ -187,7 +189,6 @@
       const { overlay, imageUrl: overlayImageUrl, frontVerified, extractionVersion } = overlays.get(id) ?? {};
       if (!gallery.isConnected) continue;
       const frame = frames.get(id) ?? {};
-      if (!frames.has(id) && block?.hasAttribute('data-lensify-restrict-collection')) continue;
       const card = gallery.closest('product-card');
       const url = frontVerified && extractionVersion === EXTRACTION_VERSION && overlay instanceof Blob && overlay.type === 'image/png'
         ? URL.createObjectURL(overlay)
@@ -321,6 +322,21 @@
     ).filter(({ id }) => id);
   }
 
+  function getRestoreBlock() {
+    return document.querySelector('[data-lensify-dialog][data-lensify-restrict-collection]')
+      ?? document.querySelector('[data-lensify-dialog]');
+  }
+
+  function getEligibleGalleries(block, frames) {
+    if (!block) return [];
+    const galleries = getGalleries();
+    if (!block.hasAttribute('data-lensify-restrict-collection')) return galleries;
+    const useCollectionGrid = block.hasAttribute('data-lensify-collection-grid');
+    return galleries.filter(({ id, gallery }) =>
+      frames.has(id) || (useCollectionGrid && gallery.closest('.main-collection-grid'))
+    );
+  }
+
   function getProductImageUrl(source) {
     if (!source) return;
     const url = new URL(source, window.location.href);
@@ -369,11 +385,9 @@
     if (!iframe) return;
 
     const catalogById = new Map(catalog.map((frame) => [frame.id, frame]));
-    const restrictCollection = block.hasAttribute('data-lensify-restrict-collection');
     const nearbyFrames = [];
     let firstFrame;
-    for (const { id, gallery } of getGalleries()) {
-      if (restrictCollection && !catalogById.has(id)) continue;
+    for (const { id, gallery } of getEligibleGalleries(block, catalogById)) {
       const distance = distanceFromViewport(gallery.getBoundingClientRect());
       const nearby = distance <= 500;
       if (!nearby && firstFrame) continue;
@@ -518,7 +532,7 @@
 
       if (!previewData) {
         previewData = saved;
-        previewBlock = document.querySelector('[data-lensify-dialog]');
+        previewBlock = getRestoreBlock();
         setTryOnEnabled(wasTryOnEnabled());
         if (enabled) reconcilePreviews();
       }
@@ -529,7 +543,7 @@
 
   const productObserver = new MutationObserver((records) => {
     if (!enabled || reconcileFrame !== undefined) return;
-    const cardSelector = 'product-card, .card-gallery';
+    const cardSelector = 'product-card, .card-gallery, [data-lensify-dialog]';
     const cardsChanged = records.some((record) => {
       if (record.type === 'attributes') return record.target.matches(cardSelector);
       return [...record.addedNodes, ...record.removedNodes].some((node) =>

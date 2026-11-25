@@ -1,14 +1,15 @@
 {% liquid
   assign dialog_id = 'lensify-dialog-' | append: block.id
-  assign restrict_collection = false
-  if block.settings.collection != blank and collection.handle != block.settings.collection.handle
-    assign restrict_collection = true
+  assign selected_collection = block.settings.collection
+  assign use_collection_grid = false
+  if request.page_type == 'collection' and selected_collection != blank and collection.id == selected_collection.id
+    assign use_collection_grid = true
   endif
 
   # On the active collection, Horizon owns pagination and renders the card images.
   # Lensify reads those cards directly instead of enumerating the collection in Liquid.
-  if request.page_type != 'collection' or restrict_collection
-    assign try_on_collection = block.settings.collection | default: collections.all
+  if request.page_type != 'collection' or selected_collection != blank
+    assign try_on_collection = selected_collection | default: collections.all
   endif
 %}
 
@@ -33,7 +34,8 @@
 <div
   popover="manual"
   data-lensify-dialog="{{ dialog_id | escape }}"
-  {% if restrict_collection %}data-lensify-restrict-collection{% endif %}
+  {% if selected_collection != blank %}data-lensify-restrict-collection{% endif %}
+  {% if use_collection_grid %}data-lensify-collection-grid{% endif %}
   data-lensify-extraction-url="{{ 'glasses-extraction.js' | asset_url | escape }}"
   {{ block.shopify_attributes }}
 >
