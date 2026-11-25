@@ -25,14 +25,18 @@ function clearBackground({ data, width, height }) {
     const queue = new Int32Array(visited.length);
     let tail = 0;
 
-    /** @param {number} pixel */
-    function enqueue(pixel) {
+    // Follow gradual gray shadows from the white backdrop, stopping at sharp
+    // changes in brightness and at dark or colored frame pixels.
+    function enqueue(pixel, previousLevel = 255) {
         if (visited[pixel]) return;
-        visited[pixel] = 1;
         const index = pixel * 4;
         const lightest = Math.max(data[index], data[index + 1], data[index + 2]);
         const darkest = Math.min(data[index], data[index + 1], data[index + 2]);
-        if (data[index + 3] > 24 && (darkest < 242 || lightest - darkest > 10)) return;
+        const white = darkest >= 242 && lightest - darkest <= 10;
+        const shadow = darkest >= 115 && lightest - darkest <= 18
+            && previousLevel - darkest <= 9;
+        if (data[index + 3] > 24 && !white && !shadow) return;
+        visited[pixel] = 1;
         data[index + 3] = 0;
         queue[tail++] = pixel;
     }
@@ -48,10 +52,14 @@ function clearBackground({ data, width, height }) {
     for (let head = 0; head < tail; head++) {
         const pixel = queue[head];
         const x = pixel % width;
-        if (x > 0) enqueue(pixel - 1);
-        if (x < width - 1) enqueue(pixel + 1);
-        if (pixel >= width) enqueue(pixel - width);
-        if (pixel < width * (height - 1)) enqueue(pixel + width);
+        const index = pixel * 4;
+        const darkest = Math.min(data[index], data[index + 1], data[index + 2]);
+        const lightest = Math.max(data[index], data[index + 1], data[index + 2]);
+        const level = darkest >= 115 && lightest - darkest <= 18 ? darkest : 255;
+        if (x > 0) enqueue(pixel - 1, level);
+        if (x < width - 1) enqueue(pixel + 1, level);
+        if (pixel >= width) enqueue(pixel - width, level);
+        if (pixel < width * (height - 1)) enqueue(pixel + width, level);
     }
 }
 

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, useLoaderData, type LoaderFunctionArgs, type HeadersFunction } from "react-router";
 import TryOnCamera from "../components/TryOnCamera";
-import type { extractFrontGlasses } from "../services/glasses-extraction.client";
 import { getGlassesFit } from "../services/glasses-fit";
 import type { FaceGeometry } from "../types/face-geometry";
 
-type StorefrontFrame = { id: string; images: Parameters<typeof extractFrontGlasses>[0] };
+type StorefrontFrame = { id: string; images: { imageUrl: string; labeledFront: boolean }[] };
 
 function isStorefrontFrame(value: unknown): value is StorefrontFrame {
     if (!value || typeof value !== "object" || !("images" in value) || !("id" in value)) return false;
@@ -32,7 +31,7 @@ export const headers: HeadersFunction = ({ loaderHeaders }) => loaderHeaders;
 
 export default function StorefrontTryOn() {
     const { storefrontOrigin } = useLoaderData<typeof loader>();
-    const [frames, setFrames] = useState<StorefrontFrame[] | null>();
+    const [cameraReady, setCameraReady] = useState<boolean>();
     const [status, setStatus] = useState("");
     const captureAccepted = useRef(false);
 
@@ -44,7 +43,7 @@ export default function StorefrontTryOn() {
 
     useEffect(() => {
         if (!storefrontOrigin || window.parent === window) {
-            setFrames(null);
+            setCameraReady(false);
             return;
         }
 
@@ -53,7 +52,8 @@ export default function StorefrontTryOn() {
             if (event.data?.type !== "LENSIFY_STOREFRONT_CATALOG") return;
             window.removeEventListener("message", receiveCatalog);
             const catalog: unknown = event.data.catalog;
-            setFrames(Array.isArray(catalog) && catalog.length <= 2500 && catalog.every(isStorefrontFrame) ? catalog : null);
+            setCameraReady(Array.isArray(catalog) && catalog.length > 0
+                && catalog.length <= 2500 && catalog.every(isStorefrontFrame));
         };
         const closeOnEscape = (event: KeyboardEvent) => {
             if (event.key === "Escape") closeModal();
@@ -68,7 +68,7 @@ export default function StorefrontTryOn() {
     }, [closeModal, storefrontOrigin]);
 
     function preparePreviews(photo: string, geometry: FaceGeometry) {
-        if (!storefrontOrigin || !frames) return;
+        if (!storefrontOrigin || !cameraReady) return;
         captureAccepted.current = true;
         setStatus("Preparing try-on previews…");
         window.parent.postMessage({
@@ -76,14 +76,14 @@ export default function StorefrontTryOn() {
             photo,
             aspectRatio: geometry.imageWidth / geometry.imageHeight,
             fit: getGlassesFit(geometry),
+            // Older storefront scripts expect this field during deployment.
             overlays: [],
         }, storefrontOrigin);
     }
 
-    if (frames?.length && !status && storefrontOrigin) {
+    if (cameraReady && !status && storefrontOrigin) {
         return (
             <TryOnCamera
-                showBackdrop={false}
                 onCapture={preparePreviews}
                 onClose={() => {
                     if (!captureAccepted.current) closeModal();
@@ -104,7 +104,7 @@ export default function StorefrontTryOn() {
                     )}
                 </div>
                 <p className="mt-3 text-sm" role="status">
-                    {status || (storefrontOrigin && frames === undefined
+                    {status || (storefrontOrigin && cameraReady === undefined
                         ? "Loading try-on…"
                         : "Open Lensify using the try-on button on the store.")}
                 </p>

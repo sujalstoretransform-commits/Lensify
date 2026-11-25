@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type UserConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
@@ -52,22 +50,6 @@ export default defineConfig({
     },
   },
   plugins: [
-    {
-      name: "lensify-glasses-extraction",
-      resolveId(id) {
-        if (id === "virtual:lensify-glasses-extraction") return "\0" + id;
-      },
-      async load(id) {
-        if (id !== "\0virtual:lensify-glasses-extraction") return;
-        // Shopify's dev tunnel reserves /extensions/ for extension traffic.
-        const asset = fileURLToPath(new URL(
-          "./extensions/tryon-button/assets/glasses-extraction.js",
-          import.meta.url,
-        ));
-        this.addWatchFile(asset);
-        return readFile(asset, "utf8");
-      },
-    },
     reactRouter(),
     tsconfigPaths(),
     tailwindcss(),

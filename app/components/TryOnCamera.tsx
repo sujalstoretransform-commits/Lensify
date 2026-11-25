@@ -5,13 +5,11 @@ import type { FaceGeometry } from "../types/face-geometry";
 interface TryOnCameraProps {
     onClose: () => void;
     onCapture: (photo: string, geometry: FaceGeometry) => void;
-    showBackdrop?: boolean;
 }
 
 export default function TryOnCamera({
     onClose,
     onCapture,
-    showBackdrop = true,
 }: TryOnCameraProps
 ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -22,15 +20,11 @@ export default function TryOnCamera({
     const [cameraAttempt, setCameraAttempt] = useState(0);
     const [error, setError] = useState("")
 
-    const [eyePoints, setEyePoints] = useState<{
-        leftEye: { x: number; y: number };
-        rightEye: { x: number; y: number };
+    const [faceCheck, setFaceCheck] = useState<{
+        eyes: { x: number; y: number }[];
         geometry: FaceGeometry;
+        landmarks: { x: number; y: number }[];
     } | null>(null);
-
-    const [imageWidth, setImageWidth] = useState(0);
-    const [imageHeight, setImageHeight] = useState(0);
-    const [faceLandmarks, setFaceLandmarks] = useState<Array<{ x: number; y: number }>>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -192,9 +186,8 @@ export default function TryOnCamera({
                 return;
             }
 
-            setEyePoints({
-                leftEye: position.leftEye,
-                rightEye: position.rightEye,
+            setFaceCheck({
+                eyes: [position.leftEye, position.rightEye],
                 geometry: {
                     center: position.center,
                     eyeDistance: position.eyeDistance,
@@ -204,16 +197,11 @@ export default function TryOnCamera({
                     imageWidth: image.naturalWidth,
                     imageHeight: image.naturalHeight,
                 },
-            })
-            setFaceLandmarks(
-                landmarks.map((landmark) => ({
+                landmarks: landmarks.map((landmark) => ({
                     x: landmark.x * image.naturalWidth,
                     y: landmark.y * image.naturalHeight,
-                }))
-            );
-
-            setImageWidth(image.naturalWidth);
-            setImageHeight(image.naturalHeight);
+                })),
+            });
 
         } catch (error) {
             console.error("Face detection failed:", error);
@@ -224,7 +212,7 @@ export default function TryOnCamera({
     }
 
     return (
-        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4${showBackdrop ? " bg-black/70" : ""}`}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
                 <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
                     <div>
@@ -273,25 +261,21 @@ export default function TryOnCamera({
                                 src={photo}
                                 alt="Your camera capture"
                                 className="block max-h-[65vh] w-auto max-w-full rounded-lg object-contain"
-                                onLoad={(event) => {
-                                    setImageWidth(event.currentTarget.naturalWidth)
-                                    setImageHeight(event.currentTarget.naturalHeight)
-                                }}
                             />
 
-                            {faceLandmarks.length > 0 && (
+                            {faceCheck && (
                                 <svg
                                     aria-hidden="true"
                                     className="pointer-events-none absolute inset-0 h-full w-full"
-                                    viewBox={`0 0 ${imageWidth} ${imageHeight}`}
+                                    viewBox={`0 0 ${faceCheck.geometry.imageWidth} ${faceCheck.geometry.imageHeight}`}
                                     preserveAspectRatio="none"
                                 >
-                                    {faceLandmarks.map((point, index) => (
+                                    {faceCheck.landmarks.map((point, index) => (
                                         <circle
                                             key={index}
                                             cx={point.x}
                                             cy={point.y}
-                                            r={Math.max(2, imageWidth * 0.0018)}
+                                            r={Math.max(2, faceCheck.geometry.imageWidth * 0.0018)}
                                             fill="#5eead4"
                                             fillOpacity="0.65"
                                         />
@@ -299,27 +283,17 @@ export default function TryOnCamera({
                                 </svg>
                             )}
 
-                            {eyePoints && imageWidth > 0 && imageHeight > 0 && (
-                                <>
-                                    <div
-                                        className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
-                                        style={{
-                                            left: `${(eyePoints.leftEye.x / imageWidth) * 100}%`,
-                                            top: `${(eyePoints.leftEye.y / imageHeight) * 100}%`,
-                                            transform: "translate(-50%, -50%)",
-                                        }}
-                                    />
-
-                                    <div
-                                        className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
-                                        style={{
-                                            left: `${(eyePoints.rightEye.x / imageWidth) * 100}%`,
-                                            top: `${(eyePoints.rightEye.y / imageHeight) * 100}%`,
-                                            transform: "translate(-50%, -50%)",
-                                        }}
-                                    />
-                                </>
-                            )}
+                            {faceCheck?.eyes.map((eye, index) => (
+                                <div
+                                    key={index}
+                                    className="absolute h-4 w-4 rounded-full border-2 border-white bg-green-500"
+                                    style={{
+                                        left: `${(eye.x / faceCheck.geometry.imageWidth) * 100}%`,
+                                        top: `${(eye.y / faceCheck.geometry.imageHeight) * 100}%`,
+                                        transform: "translate(-50%, -50%)",
+                                    }}
+                                />
+                            ))}
                         </div>
                     )}
                 </div>
@@ -332,8 +306,7 @@ export default function TryOnCamera({
                                 disabled={loading}
                                 onClick={() => {
                                     setPhoto(null)
-                                    setEyePoints(null)
-                                    setFaceLandmarks([])
+                                    setFaceCheck(null)
                                     setError("")
                                 }}
                                 className="rounded-full border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
@@ -344,8 +317,8 @@ export default function TryOnCamera({
                             <button
                                 type="button"
                                 onClick={() => {
-                                    if (eyePoints) {
-                                        onCapture(photo, eyePoints.geometry)
+                                    if (faceCheck) {
+                                        onCapture(photo, faceCheck.geometry)
                                         closeCamera();
                                     } else {
                                         handleUsePhoto();
@@ -354,7 +327,7 @@ export default function TryOnCamera({
                                 disabled={loading}
                                 className="rounded-full bg-teal-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-teal-800"
                             >
-                                {loading ? "Checking face..." : eyePoints ? "Confirm Photo" : "Check Face"}
+                                {loading ? "Checking face..." : faceCheck ? "Confirm Photo" : "Check Face"}
                             </button>
                         </>
                     ) : (

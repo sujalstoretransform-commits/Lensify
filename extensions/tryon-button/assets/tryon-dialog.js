@@ -24,7 +24,7 @@
   let enabled = false;
   const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const EXTRACTION_VERSION = 8;
+  const EXTRACTION_VERSION = 9;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -94,9 +94,7 @@
       .catch((error) => console.warn('Could not save generated overlay', error));
   }
 
-  async function readGeneratedOverlay(data, key) {
-    const legacy = data.generatedOverlays?.[key];
-    if (legacy?.extractionVersion === EXTRACTION_VERSION) return legacy.overlay;
+  async function readGeneratedOverlay(key) {
     const saved = await previewStorage('readonly', (store) => store.get([EXTRACTION_VERSION, key]), 'overlays')
       .catch(() => undefined);
     if (saved?.expiresAt > Date.now()) return saved.overlay;
@@ -155,11 +153,10 @@
     }
   }
 
-  function removePreview(gallery, { element, url, clearVariant }) {
+  function removePreview(gallery, { element, clearVariant }) {
     galleryObserver.unobserve(gallery);
     nearbyGalleries.delete(gallery);
     element.remove();
-    URL.revokeObjectURL(url);
     clearVariant();
     previews.delete(gallery);
   }
@@ -170,7 +167,6 @@
     const block = previewBlock?.isConnected ? previewBlock : getRestoreBlock();
     const blockChanged = block !== previewBlock;
     previewBlock = block;
-    const overlays = new Map(data.overlays.map((entry) => [entry.id, entry]));
     const catalog = JSON.parse(block?.querySelector('[data-lensify-catalog]')?.value || '[]');
     const frames = new Map(catalog.map((frame) => [frame.id, frame]));
     const galleries = getEligibleGalleries(block, frames);
@@ -186,13 +182,9 @@
         if (syncExisting) existing.syncGalleryImage();
         continue;
       }
-      const { overlay, imageUrl: overlayImageUrl, frontVerified, extractionVersion } = overlays.get(id) ?? {};
       if (!gallery.isConnected) continue;
       const frame = frames.get(id) ?? {};
       const card = gallery.closest('product-card');
-      const url = frontVerified && extractionVersion === EXTRACTION_VERSION && overlay instanceof Blob && overlay.type === 'image/png'
-        ? URL.createObjectURL(overlay)
-        : undefined;
       const element = document.createElement('div');
       element.className = 'lensify-preview';
       element.style.setProperty('--lensify-photo-ratio', data.aspectRatio);
@@ -236,33 +228,29 @@
         }
         let nextVariantUrl;
         try {
-          let nextUrl = url;
-          if (!url || !images.some(({ imageUrl }) => imageUrl === overlayImageUrl)) {
-            const cacheKey = `${id}:${request}`;
-            let nextOverlay = await readGeneratedOverlay(data, cacheKey);
-            if (!isCurrent()) return;
-            if (!(nextOverlay instanceof Blob) || nextOverlay.type !== 'image/png') {
-              const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
-              const result = await extractFrontGlasses(
-                images,
-                () => isCurrent() && enabled,
-                () => nearbyGalleries.has(gallery)
-                  ? distanceFromViewport(gallery.getBoundingClientRect())
-                  : Infinity,
-              );
-              if (!result) {
-                if (isCurrent()) requestedImage = undefined;
-                return;
-              }
-              ({ overlay: nextOverlay } = result);
-              saveGeneratedOverlay(cacheKey, nextOverlay);
+          const cacheKey = `${id}:${request}`;
+          let overlay = await readGeneratedOverlay(cacheKey);
+          if (!isCurrent()) return;
+          if (!(overlay instanceof Blob) || overlay.type !== 'image/png') {
+            const { extractFrontGlasses } = await import(block.dataset.lensifyExtractionUrl);
+            const result = await extractFrontGlasses(
+              images,
+              () => isCurrent() && enabled,
+              () => nearbyGalleries.has(gallery)
+                ? distanceFromViewport(gallery.getBoundingClientRect())
+                : Infinity,
+            );
+            if (!result) {
+              if (isCurrent()) requestedImage = undefined;
+              return;
             }
-            if (!isCurrent()) return;
-            nextVariantUrl = URL.createObjectURL(nextOverlay);
-            nextUrl = nextVariantUrl;
+            ({ overlay } = result);
+            saveGeneratedOverlay(cacheKey, overlay);
           }
+          if (!isCurrent()) return;
+          nextVariantUrl = URL.createObjectURL(overlay);
           const nextGlasses = glasses.cloneNode(false);
-          nextGlasses.src = nextUrl;
+          nextGlasses.src = nextVariantUrl;
           if (!photo.src) photo.src = data.photo;
           await Promise.all([nextGlasses.decode(), photo.decode()]);
           if (!isCurrent()) return;
@@ -290,12 +278,12 @@
       }
       function warmVariant(input) {
         const images = getFrameImages(gallery, frame, input);
-        if (!images.length || images.some(({ imageUrl }) => imageUrl === overlayImageUrl && url)) return;
+        if (!images.length) return;
         void import(block.dataset.lensifyExtractionUrl)
           .then(({ extractFrontGlasses }) => extractFrontGlasses(images, () => enabled && nearbyGalleries.has(gallery)))
           .catch(() => {});
       }
-      previews.set(gallery, { id, element, url, syncGalleryImage, warmVariant, clearVariant, updateVisibility });
+      previews.set(gallery, { id, element, syncGalleryImage, warmVariant, clearVariant, updateVisibility });
       galleryObserver.observe(gallery);
       syncGalleryImage();
     }
@@ -429,8 +417,9 @@
         dialog.close();
         return;
       } else if (data?.type === 'LENSIFY_STOREFRONT_PREVIEWS') {
-        const { photo, aspectRatio, fit, overlays } = data;
-        const saved = { photo, aspectRatio, fit, overlays, expiresAt: Date.now() + PHOTO_TTL_MS };
+        const { photo, aspectRatio, fit } = data;
+        // Older storefront scripts also read this IndexedDB record.
+        const saved = { photo, aspectRatio, fit, overlays: [], expiresAt: Date.now() + PHOTO_TTL_MS };
 
         if (!showPreviews(saved, block)) {
           showStatus(block, 'The try-on previews are unavailable on this page.');
