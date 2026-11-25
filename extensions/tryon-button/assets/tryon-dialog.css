@@ -4,10 +4,10 @@
   gap: 0.5rem;
   position: fixed;
   z-index: 100;
-  inset: auto max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) auto;
+  inset: max(1rem, env(safe-area-inset-top)) 0 auto;
   width: max-content;
   max-width: calc(100% - 2rem);
-  margin: 0;
+  margin: 0 auto;
   padding: 0;
   border: 0;
   overflow: visible;
@@ -93,8 +93,9 @@
 
 .lensify-status {
   position: absolute;
-  inset-block-end: calc(100% + 0.5rem);
-  inset-inline-end: 0;
+  inset-block-start: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
   box-sizing: border-box;
   width: max-content;
   max-width: min(18rem, calc(100vw - 2rem));
