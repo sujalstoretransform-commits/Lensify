@@ -56,6 +56,48 @@ function clearBackground({ data, width, height }) {
 }
 
 /**
+ * Remove a pale reflection beneath the aligned lower rims of a dark frame.
+ * @param {ImageData} pixels
+ * @param {ReturnType<typeof getVisibleBounds>} bounds
+ */
+function trimFloorReflection({ data, width }, { minX, minY, maxX, maxY }) {
+    const frameWidth = maxX - minX + 1;
+    if (frameWidth < 40) return;
+    const rimRows = [0.17, 0.64].map((start) => {
+        const left = minX + Math.round(frameWidth * start);
+        const right = Math.min(maxX, left + Math.round(frameWidth * 0.19));
+        for (let y = maxY; y >= minY; y--) {
+            let dark = 0;
+            for (let x = left; x <= right; x++) {
+                const index = (y * width + x) * 4;
+                if (data[index + 3] > 128 && Math.max(data[index], data[index + 1], data[index + 2]) <= 92) dark++;
+            }
+            if (dark >= frameWidth * 0.035) return y;
+        }
+        return minY;
+    });
+    const rimBottom = Math.max(...rimRows);
+    const cutoff = rimBottom + Math.max(2, Math.ceil(frameWidth * 0.008));
+    if (Math.abs(rimRows[0] - rimRows[1]) > frameWidth * 0.025
+        || rimBottom - minY < frameWidth * 0.2
+        || maxY - cutoff < frameWidth * 0.045) return;
+
+    // Keep the source intact if the lower area contains strong or colored detail.
+    for (let y = cutoff + 1; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            const index = (y * width + x) * 4;
+            if (data[index + 3] <= 24) continue;
+            const low = Math.min(data[index], data[index + 1], data[index + 2]);
+            const high = Math.max(data[index], data[index + 1], data[index + 2]);
+            if (low < 115 || high - low > 28) return;
+        }
+    }
+    for (let y = cutoff + 1; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) data[(y * width + x) * 4 + 3] = 0;
+    }
+}
+
+/**
  * Folded temples can form dark bands across both lens interiors.
  * Compare each band against the brighter tint in that same lens.
  * @param {ImageData} pixels
@@ -389,6 +431,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
 
         const pixels = context.getImageData(0, 0, width, height);
         clearBackground(pixels);
+        trimFloorReflection(pixels, getVisibleBounds(pixels));
 
         let { minX, minY, maxX, maxY } = getVisibleBounds(pixels);
         if (maxX < minX || maxY < minY) {
