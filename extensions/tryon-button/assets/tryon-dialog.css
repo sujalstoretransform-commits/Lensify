@@ -144,18 +144,40 @@
   transform: translate(-50%, -50%);
 }
 
-.lensify-preview-photo > img:first-child {
+.lensify-preview > .lensify-preview-photo > img:first-child {
   display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: fill;
+  object-position: center;
+  transform: none;
 }
 
-.lensify-preview-photo > .lensify-preview-glasses {
+.lensify-preview > .lensify-preview-photo > .lensify-preview-glasses {
   position: absolute;
-  top: calc(var(--lensify-eye-top, 50%) * 1.05); /* up - low , down - rise*/
-  /* translate: 1px 0; */
+  inset: auto;
+  top: var(--lensify-eye-top, 50%);
   height: auto;
   max-width: none;
+  object-fit: fill;
+}
+
+.product-card__image-wrap > .lensify-preview > .lensify-preview-photo {
+  width: max(100cqw, calc(100cqh * var(--lensify-photo-ratio)));
+}
+
+.product-card__image-wrap > .lensify-preview > .lensify-preview-photo > img {
+  margin: 0;
+  padding: 0;
+  scale: none;
+  translate: none;
+  transition: none;
+}
+
+.product-card__image-wrap > .lensify-preview > .lensify-preview-photo > img:first-child {
+  transform: none;
 }
 
 .lensify-preview-glasses[hidden] {
