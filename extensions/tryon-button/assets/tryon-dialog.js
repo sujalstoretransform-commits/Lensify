@@ -120,7 +120,7 @@
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['data-product-id'],
+        attributeFilter: ['data-product-id', 'data-active-color'],
       });
     } else {
       productObserver.disconnect();
@@ -184,7 +184,7 @@
       }
       if (!gallery.isConnected) continue;
       const frame = frames.get(id) ?? {};
-      const card = gallery.closest('product-card');
+      const card = gallery.closest('product-card, article.product-card');
       const element = document.createElement('div');
       element.className = 'lensify-preview';
       element.style.setProperty('--lensify-photo-ratio', data.aspectRatio);
@@ -302,12 +302,14 @@
 
   function getGalleries() {
     return Array.from(
-      document.querySelectorAll('product-card .card-gallery'),
-      (gallery) => ({
-        id: gallery.dataset.productId || gallery.closest('product-card')?.dataset.productId,
-        gallery,
-      })
-    ).filter(({ id }) => id);
+      document.querySelectorAll('product-card .card-gallery, article.product-card .product-card__image-wrap'),
+      (gallery) => {
+        const card = gallery.closest('product-card, article.product-card');
+        const id = gallery.dataset.productId || card?.dataset.productId
+          || gallery.querySelector('.product-card__wishlist[data-product-id]')?.dataset.productId;
+        return { id, gallery };
+      }
+    ).filter(({ id }) => /^\d+$/.test(id ?? ''));
   }
 
   function getRestoreBlock() {
@@ -321,7 +323,7 @@
     if (!block.hasAttribute('data-lensify-restrict-collection')) return galleries;
     const useCollectionGrid = block.hasAttribute('data-lensify-collection-grid');
     return galleries.filter(({ id, gallery }) =>
-      frames.has(id) || (useCollectionGrid && gallery.closest('.main-collection-grid'))
+      frames.has(id) || (useCollectionGrid && gallery.closest('.main-collection-grid, #col-product-grid'))
     );
   }
 
@@ -335,6 +337,24 @@
   }
 
   function getFrameImages(gallery, frame, input) {
+    if (gallery.matches('.product-card__image-wrap')) {
+      const variants = gallery.closest('article.product-card')?.querySelector('[data-card-variants]');
+      const imageData = variants?.querySelector('[data-card-images-json]');
+      let sources = [];
+      try {
+        const images = JSON.parse(imageData?.textContent || '{}')?.[variants?.dataset.activeColor];
+        if (Array.isArray(images)) sources = images.filter((image) => typeof image === 'string');
+      } catch {
+        // Some cards only expose their current image.
+      }
+      const primary = gallery.querySelector('img:not([data-card-slide-next])');
+      const urls = sources.length ? sources : [primary?.getAttribute('src') || primary?.currentSrc || frame.imageUrl];
+      return [...new Set(urls.map(getProductImageUrl).filter(Boolean))]
+        .map((imageUrl) => ({ imageUrl, front: /__(?:fr|cfr)\.[^/?]+(?:\?|$)/i.test(imageUrl) }))
+        .sort((a, b) => Number(b.front) - Number(a.front))
+        .slice(0, 5)
+        .map(({ imageUrl }) => ({ imageUrl, labeledFront: false }));
+    }
     const variantId = input?.dataset.variantId;
     // The gallery can still show the previous swatch while the theme updates it.
     const variantUrl = getProductImageUrl(frame.variantImages?.[variantId]);
@@ -498,7 +518,7 @@
   document.addEventListener('load', (event) => {
     const image = event.target;
     if (!enabled || !(image instanceof HTMLImageElement) || image.closest('.lensify-preview')) return;
-    const gallery = image.closest('.card-gallery');
+    const gallery = image.closest('.card-gallery, .product-card__image-wrap');
     previews.get(gallery)?.syncGalleryImage();
   }, true);
 
@@ -524,10 +544,19 @@
   }
 
   const productObserver = new MutationObserver((records) => {
-    if (!enabled || reconcileFrame !== undefined) return;
-    const cardSelector = 'product-card, .card-gallery, [data-lensify-dialog]';
+    if (!enabled) return;
+    const cardSelector = 'product-card, .card-gallery, article.product-card, .product-card__image-wrap, [data-lensify-dialog]';
+    for (const record of records) {
+      if (record.attributeName !== 'data-active-color') continue;
+      const gallery = record.target.closest('article.product-card')?.querySelector('.product-card__image-wrap');
+      previews.get(gallery)?.syncGalleryImage();
+    }
+    if (reconcileFrame !== undefined) return;
     const cardsChanged = records.some((record) => {
-      if (record.type === 'attributes') return record.target.matches(cardSelector);
+      if (record.type === 'attributes') {
+        return record.attributeName === 'data-product-id'
+          && (record.target.matches(cardSelector) || record.target.matches('.product-card__wishlist'));
+      }
       return [...record.addedNodes, ...record.removedNodes].some((node) =>
         node instanceof Element && (node.matches(cardSelector) || node.querySelector(cardSelector))
       );
