@@ -350,10 +350,9 @@
       const primary = gallery.querySelector('img:not([data-card-slide-next])');
       const urls = sources.length ? sources : [primary?.getAttribute('src') || primary?.currentSrc || frame.imageUrl];
       return [...new Set(urls.map(getProductImageUrl).filter(Boolean))]
-        .map((imageUrl) => ({ imageUrl, front: /__(?:fr|cfr)\.[^/?]+(?:\?|$)/i.test(imageUrl) }))
-        .sort((a, b) => Number(b.front) - Number(a.front))
-        .slice(0, 5)
-        .map(({ imageUrl }) => ({ imageUrl, labeledFront: false }));
+        .map((imageUrl) => ({ imageUrl, labeledFront: /__(?:fr|cfr)\.[^/?]+(?:\?|$)/i.test(imageUrl) }))
+        .sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront))
+        .slice(0, 5);
     }
     const variantId = input?.dataset.variantId;
     // The gallery can still show the previous swatch while the theme updates it.
