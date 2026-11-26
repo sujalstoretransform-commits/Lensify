@@ -7,6 +7,9 @@ interface TryOnCameraProps {
     onCapture: (photo: string, geometry: FaceGeometry) => void;
 }
 
+const photoButton = "min-h-11 rounded-full border py-3 text-sm font-bold uppercase tracking-[0.04em] shadow-[0_4px_14px_#0a2d532e] transition focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#0074b3] disabled:cursor-not-allowed disabled:opacity-60";
+const primaryPhotoButton = `${photoButton} border-[#0875af] bg-[linear-gradient(110deg,#102a50,#006ca9)] text-white enabled:hover:bg-[linear-gradient(110deg,#0b2346,#005e95)]`;
+
 export default function TryOnCamera({
     onClose,
     onCapture,
@@ -309,7 +312,7 @@ export default function TryOnCamera({
                                     setFaceCheck(null)
                                     setError("")
                                 }}
-                                className="rounded-full border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+                                className={`${photoButton} border-[#1183bf] bg-white px-6 text-[#084b7f] enabled:hover:bg-[#eaf6fd]`}
                             >
                                 Retake Photo
                             </button>
@@ -325,7 +328,7 @@ export default function TryOnCamera({
                                     }
                                 }}
                                 disabled={loading}
-                                className="rounded-full bg-teal-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-teal-800"
+                                className={`${primaryPhotoButton} px-6`}
                             >
                                 {loading ? "Checking face..." : faceCheck ? "Confirm Photo" : "Check Face"}
                             </button>
@@ -335,7 +338,7 @@ export default function TryOnCamera({
                             type="button"
                             onClick={error ? retryCamera : capturePhoto}
                             disabled={loading}
-                            className="rounded-full bg-teal-700 px-7 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            className={`${primaryPhotoButton} px-7`}
                         >
                             {error ? "Retry Camera" : "Capture Photo"}
                         </button>
