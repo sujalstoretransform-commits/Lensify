@@ -28,6 +28,35 @@
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
+  const loggedPreviewResults = new Set();
+
+  function logPreviewResult(productId, status, images, error) {
+    const failures = error instanceof AggregateError ? error.errors : error ? [error] : [];
+    const body = JSON.stringify({
+      productId,
+      status,
+      images: images.map((source) => {
+        const url = new URL(source);
+        return (url.origin + url.pathname).slice(0, 512);
+      }),
+      errors: failures.slice(0, 10).map((failure) =>
+        String(failure.cause?.message ?? failure.message ?? failure).slice(0, 240)),
+    });
+    if (loggedPreviewResults.has(body)) return;
+    loggedPreviewResults.add(body);
+    void fetch('/apps/lensify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).then((response) => {
+      if (!response.ok) loggedPreviewResults.delete(body);
+    }).catch(() => loggedPreviewResults.delete(body));
+  }
+
+  function logProductPageImage(image) {
+    const url = getProductImageUrl(image?.currentSrc || image?.getAttribute('src'));
+    if (url) logPreviewResult(undefined, 'unsupported-gallery', [url]);
+  }
 
   function getCameraUrl() {
     if (cameraUrlRequest && Date.now() < cameraUrlExpiresAt) return cameraUrlRequest;
@@ -167,6 +196,7 @@
     const block = previewBlock?.isConnected ? previewBlock : getRestoreBlock();
     const blockChanged = block !== previewBlock;
     previewBlock = block;
+    if (enabled) logProductPageImage(document.getElementById('pdp2-main-img'));
     const catalog = JSON.parse(block?.querySelector('[data-lensify-catalog]')?.value || '[]');
     const frames = new Map(catalog.map((frame) => [frame.id, frame]));
     const galleries = getEligibleGalleries(block, frames);
@@ -224,6 +254,7 @@
         updateVisibility();
         if (!images.length) {
           clearVariant();
+          logPreviewResult(id, 'no-images', []);
           return;
         }
         let nextVariantUrl;
@@ -261,6 +292,7 @@
           nextVariantUrl = undefined;
           ready = true;
           updateVisibility();
+          logPreviewResult(id, 'ready', images.map(({ imageUrl }) => imageUrl));
         } catch (error) {
           if (!isCurrent()) return;
           ready = false;
@@ -268,6 +300,7 @@
           clearVariant();
           requestedImage = undefined;
           console.warn('Could not load selected try-on image', { productId: id, images, error });
+          logPreviewResult(id, 'failed', images.map(({ imageUrl }) => imageUrl), error);
         } finally {
           if (nextVariantUrl) URL.revokeObjectURL(nextVariantUrl);
         }
@@ -526,6 +559,7 @@
   document.addEventListener('load', (event) => {
     const image = event.target;
     if (!enabled || !(image instanceof HTMLImageElement) || image.closest('.lensify-preview')) return;
+    if (image.id === 'pdp2-main-img') logProductPageImage(image);
     const gallery = image.closest('.card-gallery, .product-card__image-wrap');
     previews.get(gallery)?.syncGalleryImage();
   }, true);
