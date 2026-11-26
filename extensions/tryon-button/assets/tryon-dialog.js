@@ -24,7 +24,7 @@
   let enabled = false;
   const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const EXTRACTION_VERSION = 10;
+  const EXTRACTION_VERSION = 11;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -51,11 +51,6 @@
     }).then((response) => {
       if (!response.ok) loggedPreviewResults.delete(body);
     }).catch(() => loggedPreviewResults.delete(body));
-  }
-
-  function logProductPageImage(image) {
-    const url = getProductImageUrl(image?.currentSrc || image?.getAttribute('src'));
-    if (url) logPreviewResult(undefined, 'unsupported-gallery', [url]);
   }
 
   function getCameraUrl() {
@@ -196,7 +191,6 @@
     const block = previewBlock?.isConnected ? previewBlock : getRestoreBlock();
     const blockChanged = block !== previewBlock;
     previewBlock = block;
-    if (enabled) logProductPageImage(document.getElementById('pdp2-main-img'));
     const catalog = JSON.parse(block?.querySelector('[data-lensify-catalog]')?.value || '[]');
     const frames = new Map(catalog.map((frame) => [frame.id, frame]));
     const galleries = getEligibleGalleries(block, frames);
@@ -335,8 +329,12 @@
 
   function getGalleries() {
     return Array.from(
-      document.querySelectorAll('product-card .card-gallery, article.product-card .product-card__image-wrap'),
+      document.querySelectorAll('product-card .card-gallery, article.product-card .product-card__image-wrap, #pdp2-main-img-wrap'),
       (gallery) => {
+        if (gallery.id === 'pdp2-main-img-wrap') {
+          const id = document.querySelector('.pdp2-wishlist-btn[data-product-id]')?.dataset.productId;
+          return { id, gallery };
+        }
         const card = gallery.closest('product-card, article.product-card');
         const id = gallery.dataset.productId || card?.dataset.productId
           || gallery.querySelector('.product-card__wishlist[data-product-id]')?.dataset.productId;
@@ -374,6 +372,13 @@
   }
 
   function getFrameImages(gallery, frame, input) {
+    if (gallery.id === 'pdp2-main-img-wrap') {
+      const image = gallery.querySelector('#pdp2-main-img');
+      const imageUrl = getProductImageUrl(image?.getAttribute('src') || image?.currentSrc);
+      return imageUrl
+        ? [{ imageUrl, labeledFront: hasFrontViewAlt(image.alt) }]
+        : [];
+    }
     if (gallery.matches('.product-card__image-wrap')) {
       const variants = gallery.closest('article.product-card')?.querySelector('[data-card-variants]');
       const imageData = variants?.querySelector('[data-card-images-json]');
@@ -386,7 +391,8 @@
       }
       const primary = gallery.querySelector('img:not([data-card-slide-next])');
       const primaryUrl = getProductImageUrl(primary?.currentSrc || primary?.getAttribute('src'));
-      const urls = sources.length ? sources : [primaryUrl || frame.imageUrl];
+      const urls = [primaryUrl, ...sources];
+      if (!primaryUrl && !sources.length) urls.push(frame.imageUrl);
       return [...new Set(urls.map(getProductImageUrl).filter(Boolean))]
         .map((imageUrl) => ({
           imageUrl,
@@ -559,8 +565,7 @@
   document.addEventListener('load', (event) => {
     const image = event.target;
     if (!enabled || !(image instanceof HTMLImageElement) || image.closest('.lensify-preview')) return;
-    if (image.id === 'pdp2-main-img') logProductPageImage(image);
-    const gallery = image.closest('.card-gallery, .product-card__image-wrap');
+    const gallery = image.closest('.card-gallery, .product-card__image-wrap, #pdp2-main-img-wrap');
     previews.get(gallery)?.syncGalleryImage();
   }, true);
 
@@ -587,7 +592,7 @@
 
   const productObserver = new MutationObserver((records) => {
     if (!enabled) return;
-    const cardSelector = 'product-card, .card-gallery, article.product-card, .product-card__image-wrap, [data-lensify-dialog]';
+    const cardSelector = 'product-card, .card-gallery, article.product-card, .product-card__image-wrap, #pdp2-main-img-wrap, #pdp2-main-img, .pdp2-wishlist-btn, [data-lensify-dialog]';
     for (const record of records) {
       if (record.attributeName !== 'data-active-color') continue;
       const gallery = record.target.closest('article.product-card')?.querySelector('.product-card__image-wrap');
@@ -606,7 +611,7 @@
     if (!cardsChanged) return;
     reconcileFrame = requestAnimationFrame(() => {
       reconcileFrame = undefined;
-      reconcilePreviews();
+      reconcilePreviews(true);
     });
   });
 

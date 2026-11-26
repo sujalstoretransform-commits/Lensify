@@ -315,8 +315,13 @@ function hasSymmetricFrame({ data, width, height }) {
     /** @param {number} x @param {number} y */
     function isFrame(x, y) {
         const index = (y * width + x) * 4;
+        const red = data[index];
+        const green = data[index + 1];
+        const blue = data[index + 2];
+        // Bright mirror lenses can still define the frame's silhouette.
         return data[index + 3] > 128
-            && (data[index] + data[index + 1] + data[index + 2]) / 3 < 165;
+            && ((red + green + blue) / 3 < 165
+                || Math.max(red, green, blue) - Math.min(red, green, blue) >= 45);
     }
 
     let left = width;

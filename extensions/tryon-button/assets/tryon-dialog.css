@@ -116,6 +116,10 @@
   display: none;
 }
 
+#pdp2-main-img-wrap:has(> .lensify-preview) {
+  position: relative;
+}
+
 .lensify-preview {
   position: absolute;
   inset: 0;
