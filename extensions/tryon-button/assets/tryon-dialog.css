@@ -30,41 +30,44 @@
   border-radius: 999px;
   font-family: inherit;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   line-height: 1.25;
-  box-shadow: 0 2px 8px rgb(15 23 42 / 18%);
+  text-transform: uppercase;
+  box-shadow: 0 4px 14px rgb(10 45 83 / 18%);
   cursor: pointer;
 }
 
 .lensify-launch {
-  background: #115e59;
+  border-color: #0875af;
+  background: linear-gradient(110deg, #102a50, #006ca9);
   color: #fff;
 }
 
 .lensify-launch:enabled:hover {
-  background: #134e4a;
+  background: linear-gradient(110deg, #0b2346, #005e95);
 }
 
 .lensify-launch[aria-pressed='false'],
 .lensify-retake {
-  border-color: #94a3b8;
+  border-color: #1183bf;
   background: #fff;
-  color: #334155;
+  color: #084b7f;
 }
 
 .lensify-launch[aria-pressed='false']:enabled:hover,
 .lensify-retake:enabled:hover {
-  background: #f1f5f9;
+  background: #eaf6fd;
 }
 
 .lensify-launch[aria-pressed='true'] {
-  border-color: #0f766e;
-  background: #ccfbf1;
-  color: #134e4a;
+  border-color: #1183bf;
+  background: #eaf6fd;
+  color: #084b7f;
 }
 
 .lensify-launch[aria-pressed='true']:enabled:hover {
-  background: #99f6e4;
+  background: #d8effc;
 }
 
 .lensify-launch[aria-pressed]::before {
@@ -77,7 +80,7 @@
 
 .lensify-launch:focus-visible,
 .lensify-retake:focus-visible {
-  outline: 2px solid #0f766e;
+  outline: 2px solid #0074b3;
   outline-offset: 3px;
 }
 
