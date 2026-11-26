@@ -547,8 +547,8 @@ function createExtractionWorker() {
         self.onmessage = async ({ data: { id, args } }) => {
             try {
                 self.postMessage({ id, overlay: await extractGlasses(...args) });
-            } catch {
-                self.postMessage({ id });
+            } catch (error) {
+                self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
             }
         };
     `;
@@ -558,20 +558,22 @@ function createExtractionWorker() {
         const requests = new Map();
         let nextId = 0;
         let failed = false;
-        worker.onmessage = ({ data: { id, overlay } }) => {
-            requests.get(id)?.(overlay);
+        worker.onmessage = ({ data: { id, overlay, error } }) => {
+            const request = requests.get(id);
             requests.delete(id);
+            if (error !== undefined) request?.reject(new Error(error));
+            else request?.resolve(overlay);
         };
         worker.onerror = () => {
             failed = true;
             worker.terminate();
-            for (const resolve of requests.values()) resolve(null);
+            for (const { resolve } of requests.values()) resolve(null);
             requests.clear();
         };
-        return (...args) => new Promise((resolve) => {
+        return (...args) => new Promise((resolve, reject) => {
             if (failed) return resolve(null);
             const id = nextId++;
-            requests.set(id, resolve);
+            requests.set(id, { resolve, reject });
             worker.postMessage({ id, args });
         });
     } finally {
@@ -677,15 +679,16 @@ export function extractFrontGlasses(candidates, shouldContinue = () => true, pri
  * @param {() => boolean} shouldContinue
  */
 async function extractFrame(candidates, shouldContinue) {
+    const failures = [];
     for (const size of [PREVIEW_IMAGE_SIZE, 1280]) {
         for (const { imageUrl, labeledFront } of candidates) {
             if (!shouldContinue()) return;
             try {
                 return { imageUrl, overlay: await extractPreviewImage(imageUrl, !labeledFront, size) };
-            } catch {
-                // Try another view, then use full resolution if the smaller images fail.
+            } catch (error) {
+                failures.push(new Error(`${imageUrl} (${size}px): ${error.message}`, { cause: error }));
             }
         }
     }
-    throw new Error("No front-facing product image could be prepared");
+    throw new AggregateError(failures, "No front-facing product image could be prepared");
 }

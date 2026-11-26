@@ -267,7 +267,7 @@
           updateVisibility();
           clearVariant();
           requestedImage = undefined;
-          console.warn('Could not load selected try-on image', error);
+          console.warn('Could not load selected try-on image', { productId: id, images, error });
         } finally {
           if (nextVariantUrl) URL.revokeObjectURL(nextVariantUrl);
         }
@@ -328,12 +328,16 @@
   }
 
   function getProductImageUrl(source) {
-    if (!source) return;
+    if (!source || !URL.canParse(source, window.location.href)) return;
     const url = new URL(source, window.location.href);
     if (url.protocol !== 'https:') return;
     url.searchParams.set('width', '1280');
     url.searchParams.sort();
     return url.href;
+  }
+
+  function hasFrontViewAlt(alt) {
+    return /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
   }
 
   function getFrameImages(gallery, frame, input) {
@@ -348,10 +352,15 @@
         // Some cards only expose their current image.
       }
       const primary = gallery.querySelector('img:not([data-card-slide-next])');
-      const urls = sources.length ? sources : [primary?.getAttribute('src') || primary?.currentSrc || frame.imageUrl];
+      const primaryUrl = getProductImageUrl(primary?.currentSrc || primary?.getAttribute('src'));
+      const urls = sources.length ? sources : [primaryUrl || frame.imageUrl];
       return [...new Set(urls.map(getProductImageUrl).filter(Boolean))]
-        .map((imageUrl) => ({ imageUrl, labeledFront: /__(?:fr|cfr)\.[^/?]+(?:\?|$)/i.test(imageUrl) }))
-        .sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront))
+        .map((imageUrl) => ({
+          imageUrl,
+          labeledFront: imageUrl === primaryUrl && hasFrontViewAlt(primary?.alt || ''),
+        }))
+        .sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront)
+          || Number(b.imageUrl === primaryUrl) - Number(a.imageUrl === primaryUrl))
         .slice(0, 5);
     }
     const variantId = input?.dataset.variantId;
@@ -368,11 +377,11 @@
       const alt = media.find((image) => imageUrlFor(image) === imageUrl)?.alt || '';
       if (/\b(?:angled?|three[\s-]quarter|(?:back|rear|side)[\s-]+(?:view|profile)|view from (?:behind|the back|the rear|the side))\b|45°/i.test(alt)) continue;
       const foldedArms = /\b(?:folded|closed|crossed)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:folded|closed|crossed)\b/i.test(alt);
-      const labeledFront = /\b(?:front[\s-]+(?:view|facing|on)|straight[\s-]+on|view from the front)\b/i.test(alt);
+      const labeledFront = hasFrontViewAlt(alt);
       const openArms = /\b(?:open|unfolded)[\s-]+(?:arms|temples)\b|\b(?:arms|temples)[\s-]+(?:open|unfolded)\b/i.test(alt);
       candidates.push({ imageUrl, labeledFront, priority: Number(openArms) - Number(foldedArms) });
     }
-    return candidates.sort((a, b) => b.priority - a.priority).slice(0, 5)
+    return candidates.sort((a, b) => Number(b.labeledFront) - Number(a.labeledFront) || b.priority - a.priority).slice(0, 5)
       .map(({ imageUrl, labeledFront }) => ({ imageUrl, labeledFront }));
   }
 
