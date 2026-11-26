@@ -311,7 +311,7 @@ function clearLensOpenings({ data, width, height }, minX, maxX) {
 }
 
 /** @param {ImageData} pixels */
-function hasSymmetricFrame({ data, width, height }) {
+function hasSymmetricFrame({ data, width, height }, transparentBackdrop) {
     /** @param {number} x @param {number} y */
     function isFrame(x, y) {
         const index = (y * width + x) * 4;
@@ -320,7 +320,7 @@ function hasSymmetricFrame({ data, width, height }) {
         const blue = data[index + 2];
         // Bright mirror lenses can still define the frame's silhouette.
         return data[index + 3] > 128
-            && ((red + green + blue) / 3 < 165
+            && (transparentBackdrop || (red + green + blue) / 3 < 165
                 || Math.max(red, green, blue) - Math.min(red, green, blue) >= 45);
     }
 
@@ -466,7 +466,10 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         bitmap.close();
 
         const pixels = context.getImageData(0, 0, width, height);
-        clearBackground(pixels);
+        const originalBounds = getVisibleBounds(pixels);
+        const transparentBackdrop = originalBounds.minX > 0 && originalBounds.minY > 0
+            && originalBounds.maxX < width - 1 && originalBounds.maxY < height - 1;
+        if (!transparentBackdrop) clearBackground(pixels);
         trimFloorReflection(pixels, getVisibleBounds(pixels));
 
         let { minX, minY, maxX, maxY } = getVisibleBounds(pixels);
@@ -479,7 +482,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         }
         const crossedTemples = hasFoldedTemples(pixels, bounds);
         const hasMatchingLensOpenings = clearLensOpenings(pixels, minX, maxX);
-        const symmetricFrame = !hasMatchingLensOpenings && hasSymmetricFrame(pixels);
+        const symmetricFrame = !hasMatchingLensOpenings && hasSymmetricFrame(pixels, transparentBackdrop);
         if (requireFront && !hasMatchingLensOpenings && !symmetricFrame) {
             throw new Error("Could not verify a front-facing frame");
         }
@@ -489,11 +492,13 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
 
         // Clear lenses can show the same white backdrop as the outside of the
         // frame, even when rims or folded arms split it into separate areas.
-        for (let index = 0; index < pixels.data.length; index += 4) {
-            const low = Math.min(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]);
-            const high = Math.max(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]);
-            if (low >= 242 && high - low <= 6) {
-                pixels.data[index + 3] = 0;
+        if (!transparentBackdrop) {
+            for (let index = 0; index < pixels.data.length; index += 4) {
+                const low = Math.min(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]);
+                const high = Math.max(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]);
+                if (low >= 242 && high - low <= 6) {
+                    pixels.data[index + 3] = 0;
+                }
             }
         }
 
