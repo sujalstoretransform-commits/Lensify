@@ -462,6 +462,40 @@ function trimAboveTintedRims({ data, width, height }, minX, maxX) {
     }
 }
 
+/** Remove small dark marks surrounded by clear lens or matching tint. */
+function removeLensSpecks({ data, width }, { minX, minY, maxX, maxY }) {
+    const frameWidth = maxX - minX + 1;
+    const frameHeight = maxY - minY + 1;
+    const radius = Math.max(2, Math.round(frameWidth * 0.022));
+    const horizontal = Math.max(2, Math.round(frameWidth * 0.04)) * 4;
+    const vertical = radius * width * 4;
+    const top = minY + Math.max(radius, Math.ceil(frameHeight * 0.18));
+    const bottom = maxY - Math.max(radius, Math.ceil(frameHeight * 0.12));
+    const source = new Uint8ClampedArray(data);
+    const brightness = (index) => (source[index] + source[index + 1] + source[index + 2]) / 3;
+
+    for (const edge of [minX, maxX]) {
+        const direction = edge === minX ? 1 : -1;
+        for (let y = top; y <= bottom; y++) {
+            for (let offset = Math.ceil(frameWidth * 0.13); offset < frameWidth * 0.39; offset++) {
+                const index = (y * width + edge + direction * offset) * 4;
+                if (source[index + 3] <= 24) continue;
+                const samples = [index - horizontal, index + horizontal, index - vertical, index + vertical];
+                if (samples.every((sample) => source[sample + 3] <= 24)) {
+                    data[index + 3] = 0;
+                    continue;
+                }
+                if (samples.some((sample) => source[sample + 3] <= 96)) continue;
+                const levels = samples.map(brightness);
+                if (Math.max(...levels) - Math.min(...levels) > 16 || Math.min(...levels) - brightness(index) < 10) continue;
+                for (let channel = 0; channel < 4; channel++) {
+                    data[index + channel] = samples.reduce((sum, sample) => sum + source[sample + channel], 0) / 4;
+                }
+            }
+        }
+    }
+}
+
 /** @param {string} imageUrl @param {boolean} [requireFront] @returns {Promise<Blob>} */
 export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) => {
     const cacheKey = JSON.stringify([imageUrl, requireFront, maxSize]);
@@ -528,6 +562,7 @@ export const extractGlasses = (imageUrl, requireFront = false, maxSize = 1280) =
         }
 
         softenTemples(pixels, bounds, crossedTemples);
+        removeLensSpecks(pixels, getVisibleBounds(pixels));
         ({ minX, minY, maxX, maxY } = getVisibleBounds(pixels));
         if (maxX < minX || maxY < minY) throw new Error("No glasses found after cleanup");
         context.putImageData(pixels, 0, 0);
