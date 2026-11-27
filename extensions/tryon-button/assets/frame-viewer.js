@@ -78,6 +78,7 @@
         showError('Shopify did not provide a model URL');
         return;
       }
+      viewer.removeAttribute('poster');
       viewer.addEventListener('load', () => {
         loading.hidden = true;
         hint.hidden = false;
