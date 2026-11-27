@@ -1,0 +1,10 @@
+{
+  "frame_viewer": {
+    "open": "View in 360°",
+    "close": "Close 360° view",
+    "hint": "Drag to rotate. You can also use the arrow keys.",
+    "loading": "Loading 3D model…",
+    "error": "The 3D model couldn’t load. Close the viewer and try again.",
+    "setup": "Add a 3D model to this product’s media to display the 360° viewer."
+  }
+}

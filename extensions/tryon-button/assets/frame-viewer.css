@@ -1,0 +1,98 @@
+.lensify-frame-launch {
+  padding: 0.65rem 1rem;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lensify-frame-dialog {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  width: min(94vw, 90rem);
+  height: min(88dvh, 56rem);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d7dbe1;
+  border-radius: 0.8rem;
+  background: #fff;
+  color: #202938;
+}
+
+.lensify-frame-dialog::backdrop {
+  background: rgb(15 23 42 / 70%);
+}
+
+.lensify-frame-dismiss {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0.25rem;
+  inset-inline-end: 0.25rem;
+  margin: 0;
+}
+
+.lensify-frame-dismiss button {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: #626c80;
+  font: 1.5rem/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.lensify-frame-dismiss button:hover {
+  color: #202938;
+}
+
+.lensify-frame-dismiss button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -5px;
+}
+
+.lensify-frame-stage {
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 3.5rem;
+}
+
+.lensify-frame-stage .shopify-model-viewer-ui {
+  width: 100%;
+  height: 100%;
+}
+
+.lensify-frame-stage model-viewer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+  --poster-color: #fff;
+}
+
+.lensify-frame-stage model-viewer:active {
+  cursor: grabbing;
+}
+
+.lensify-frame-caption {
+  position: absolute;
+  inset-inline: 1rem;
+  inset-block-end: 0.75rem;
+  margin: 0;
+  text-align: center;
+  font: 0.875rem/1.4 system-ui, sans-serif;
+}
+
+.lensify-frame-caption[hidden] {
+  display: none;
+}
