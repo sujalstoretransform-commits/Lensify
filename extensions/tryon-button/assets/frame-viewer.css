@@ -1,11 +1,49 @@
 .lensify-frame-launch {
-  padding: 0.65rem 1rem;
-  border: 1px solid currentColor;
-  border-radius: 0.4rem;
-  background: transparent;
-  color: inherit;
-  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.625rem 1.125rem;
+  border: 1px solid transparent;
+  border-radius: 0.625rem;
+  background: #182b43;
+  color: #fff;
+  font: 600 0.9375rem/1.25 system-ui, sans-serif;
   cursor: pointer;
+}
+
+.lensify-frame-launch:hover {
+  background: #263f5d;
+}
+
+.lensify-frame-launch:active {
+  background: #102034;
+}
+
+.lensify-frame-launch:focus-visible {
+  outline: 2px solid #4874aa;
+  outline-offset: 3px;
+}
+
+.lensify-frame-setup {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid #c7d9f5;
+  border-inline-start: 3px solid #4b72ad;
+  border-radius: 0.5rem;
+  background: #f2f6fd;
+  color: #354b68;
+}
+
+.lensify-frame-setup p {
+  margin: 0;
+  font: 0.875rem/1.45 system-ui, sans-serif;
+}
+
+.lensify-frame-setup .lensify-frame-setup-title {
+  color: #192f4b;
+  font-weight: 650;
 }
 
 .lensify-frame-dialog {

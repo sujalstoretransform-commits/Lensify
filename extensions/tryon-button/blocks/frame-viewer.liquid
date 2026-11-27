@@ -21,7 +21,10 @@
     </template>
   </div>
 {% elsif request.design_mode %}
-  <p {{ block.shopify_attributes }}>{{ 'frame_viewer.setup' | t }}</p>
+  <div class="lensify-frame-setup" {{ block.shopify_attributes }}>
+    <p class="lensify-frame-setup-title">{{ 'frame_viewer.setup_title' | t }}</p>
+    <p>{{ 'frame_viewer.setup' | t }}</p>
+  </div>
 {% endif %}
 
 {% schema %}
