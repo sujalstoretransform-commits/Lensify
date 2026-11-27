@@ -470,14 +470,14 @@ function removeLensSpecks({ data, width }, { minX, minY, maxX, maxY }) {
     const horizontal = Math.max(2, Math.round(frameWidth * 0.04)) * 4;
     const vertical = radius * width * 4;
     const top = minY + Math.max(radius, Math.ceil(frameHeight * 0.18));
-    const bottom = maxY - Math.max(radius, Math.ceil(frameHeight * 0.12));
+    const bottom = maxY - Math.max(radius, Math.ceil(frameHeight * 0.07));
     const source = new Uint8ClampedArray(data);
     const brightness = (index) => (source[index] + source[index + 1] + source[index + 2]) / 3;
 
     for (const edge of [minX, maxX]) {
         const direction = edge === minX ? 1 : -1;
         for (let y = top; y <= bottom; y++) {
-            for (let offset = Math.ceil(frameWidth * 0.13); offset < frameWidth * 0.39; offset++) {
+            for (let offset = Math.max(Math.ceil(frameWidth * 0.07), horizontal / 4); offset < frameWidth * 0.39; offset++) {
                 const index = (y * width + edge + direction * offset) * 4;
                 if (source[index + 3] <= 24) continue;
                 const samples = [index - horizontal, index + horizontal, index - vertical, index + vertical];
@@ -486,10 +486,15 @@ function removeLensSpecks({ data, width }, { minX, minY, maxX, maxY }) {
                     continue;
                 }
                 if (samples.some((sample) => source[sample + 3] <= 96)) continue;
-                const levels = samples.map(brightness);
-                if (Math.max(...levels) - Math.min(...levels) > 16 || Math.min(...levels) - brightness(index) < 10) continue;
+                const [left, right, above, below] = samples.map(brightness);
+                const rowTint = (left + right) / 2;
+                const columnTint = (above + below) / 2;
+                // Gradient lenses can change rapidly from top to bottom.
+                // Compare the tint predicted at this pixel along each axis.
+                if (Math.abs(left - right) > 16 || Math.abs(rowTint - columnTint) > 16
+                    || Math.min(left, right, rowTint, columnTint) - brightness(index) < 10) continue;
                 for (let channel = 0; channel < 4; channel++) {
-                    data[index + channel] = samples.reduce((sum, sample) => sum + source[sample + channel], 0) / 4;
+                    data[index + channel] = (source[index - horizontal + channel] + source[index + horizontal + channel]) / 2;
                 }
             }
         }

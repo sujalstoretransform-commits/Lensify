@@ -24,7 +24,7 @@
   let enabled = false;
   const TRY_ON_STATE_KEY = 'lensify-tryon-enabled';
   const PHOTO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const EXTRACTION_VERSION = 17;
+  const EXTRACTION_VERSION = 18;
   const CAMERA_URL_TTL_MS = 30_000;
   let cameraUrlRequest;
   let cameraUrlExpiresAt = 0;
@@ -223,6 +223,10 @@
       // Older previews stored an eye position with the former 103.5% scale baked in.
       const eyeTop = anchorTop ?? parseFloat(savedTop) / 1.035;
       Object.assign(glasses.style, fit);
+      if (gallery.id === 'pdp2-main-img-wrap') {
+        glasses.style.transform = (fit.transform || '').replace(/^translate\([^)]*\)\s*/, '');
+        glasses.style.translate = '-50% calc(-1 * var(--lensify-frame-eye-line))';
+      }
       glasses.style.setProperty('--lensify-eye-top', `${eyeTop}%`);
       photoContainer.append(photo, glasses);
       element.append(photoContainer);

@@ -172,6 +172,11 @@
   object-fit: fill;
 }
 
+#pdp2-main-img-wrap > .lensify-preview > .lensify-preview-photo > .lensify-preview-glasses {
+  --lensify-frame-eye-line: 46%;
+  transform-origin: 50% var(--lensify-frame-eye-line);
+}
+
 .product-card__image-wrap > .lensify-preview > .lensify-preview-photo {
   width: max(100cqw, calc(100cqh * var(--lensify-photo-ratio)));
 }
