@@ -392,7 +392,7 @@ function trimAboveTintedRims({ data, width, height }, minX, maxX) {
 
     // Folded tips appear as dark marks in the upper outer area of each lens.
     // Use the tint from the same row to preserve vertical lens gradients.
-    for (let y = firstLensRow + Math.ceil(lensHeight * 0.12); y <= lastLensRow - lensHeight * 0.12; y++) {
+    for (let y = firstLensRow; y <= lastLensRow; y++) {
         for (const [outer, inner, step] of [[minX, center, 1], [maxX, center + 1, -1]]) {
             const row = [];
             for (let x = outer; x !== inner + step; x += step) {
@@ -405,9 +405,9 @@ function trimAboveTintedRims({ data, width, height }, minX, maxX) {
                 .filter((index) => brightness(index) < 165)
                 .sort((a, b) => brightness(a) - brightness(b));
             if (!samples.length) continue;
-            const reference = samples[Math.floor(samples.length / 2)];
+            const reference = samples[Math.floor(samples.length * 0.7)];
             const tint = brightness(reference);
-            if (y <= firstLensRow + lensHeight * 0.65) {
+            if (y >= firstLensRow + lensHeight * 0.12 && y <= firstLensRow + lensHeight * 0.65) {
                 for (let position = Math.ceil(row.length * 0.14); position < row.length * 0.55; position++) {
                     const index = row[position];
                     const difference = tint - brightness(index);
@@ -417,6 +417,31 @@ function trimAboveTintedRims({ data, width, height }, minX, maxX) {
                         data[index + channel] += (data[reference + channel] - data[index + channel]) * blend;
                     }
                 }
+            }
+
+            // Tint on both sides bounds an interior gap. Rebuild the full span,
+            // including its faint edges, without extending the fill into the rim.
+            let anchor = -1;
+            for (const index of row) {
+                if (Math.abs(brightness(index) - tint) > 2) continue;
+                const span = Math.abs(index - anchor) / 4;
+                if (anchor >= 0 && span > 1 && span <= row.length * 0.38) {
+                    const stride = Math.sign(index - anchor) * 4;
+                    let sample = anchor + stride;
+                    while (sample !== index && data[sample + 3] > 128 && brightness(sample) <= tint + 2) {
+                        sample += stride;
+                    }
+                    if (sample === index) {
+                        for (let offset = 1; offset < span; offset++) {
+                            const weight = offset / span;
+                            const target = anchor + offset * stride;
+                            for (let channel = 0; channel < 3; channel++) {
+                                data[target + channel] = data[anchor + channel] * (1 - weight) + data[index + channel] * weight;
+                            }
+                        }
+                    }
+                }
+                anchor = index;
             }
 
             // Feather the lens opacity inward and leave dark rims and reflections intact.
